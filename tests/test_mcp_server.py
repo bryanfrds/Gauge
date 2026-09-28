@@ -201,3 +201,10 @@ async def test_bad_yn_routes_is_not_blamed_on_caller(decider, fake_model, tmp_pa
     monkeypatch.setenv("YN_ROUTES", str(p))
     with pytest.raises(UnexpectedToolError):
         await server.mcp.call_tool("yn_route", {"task": "fix typo"})
+
+
+async def test_route_with_unknown_key_is_rejected_like_the_cli(decider, fake_model):
+    routes = [{"model": "a", "when": "A.", "extra": 1}, {"model": "b", "when": "B."}]
+    with pytest.raises(ToolError, match="extra") as e:
+        await server.mcp.call_tool("yn_route", {"task": "x", "routes": routes})
+    assert not isinstance(e.value, UnexpectedToolError)

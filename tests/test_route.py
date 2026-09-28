@@ -140,7 +140,7 @@ def test_whitespace_only_difference_in_model_is_duplicate():
 
 
 def test_overlong_when_is_input_error():
-    with pytest.raises(InputError, match='route 0: "when" is 1001 characters'):
+    with pytest.raises(InputError, match='route 0: "when" is too long'):
         check_routes([{"model": "a", "when": "x" * 1001}, ROUTES[1]])
 
 
@@ -177,4 +177,29 @@ def test_cli_overlong_when_in_yn_routes_exits_3(fake_model, tmp_path, monkeypatc
     p = tmp_path / "r.json"
     p.write_text(json.dumps([{"model": "a", "when": "x" * 1001}, ROUTES[1]]))
     monkeypatch.setenv("YN_ROUTES", str(p))
+    assert main(["route", TASK]) == EXIT_ERROR
+
+
+@pytest.mark.parametrize("when, ok", [
+    ("x" * 999, True),            # 1000 with the added period
+    ("x" * 999 + ".", True),      # exactly 1000, already a statement
+    ("x" * 1000, False),          # 1001 once the period is added
+])
+def test_length_limit_counts_the_added_period(when, ok):
+    routes = [{"model": "a", "when": when}, ROUTES[1]]
+    if ok:
+        check_routes(routes)
+    else:
+        with pytest.raises(InputError, match="1001 characters with its final period"):
+            check_routes(routes)
+
+
+def test_1000_char_unpunctuated_when_in_yn_routes_is_setup_error(decider, tmp_path,
+                                                                  monkeypatch):
+    p = tmp_path / "r.json"
+    p.write_text(json.dumps([{"model": "a", "when": "x" * 1000}, ROUTES[1]]))
+    monkeypatch.setenv("YN_ROUTES", str(p))
+    with pytest.raises(RuntimeError, match="YN_ROUTES") as e:
+        route_many(decider, [TASK])
+    assert not isinstance(e.value, InputError)
     assert main(["route", TASK]) == EXIT_ERROR

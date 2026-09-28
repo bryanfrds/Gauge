@@ -41,11 +41,13 @@ def check_routes(routes) -> list[tuple[str, str]]:
         if not all(isinstance(v, str) and v.strip() for v in (model, when)):
             raise InputError(f'route {i}: "model" and "when" must be non-empty text')
         when = when.strip()
-        if len(when) > MAX_STATEMENT_CHARS:
-            raise InputError(f'route {i}: "when" is {len(when)} characters; the limit '
-                             f"is {MAX_STATEMENT_CHARS}")
         # A statement, so the model judges it directly instead of via a label template.
-        pairs.append((model.strip(), when if when[-1] in ".!?" else when + "."))
+        # Length is checked after adding the period, on exactly what gets scored.
+        statement = when if when[-1] in ".!?" else when + "."
+        if len(statement) > MAX_STATEMENT_CHARS:
+            raise InputError(f'route {i}: "when" is too long ({len(statement)} characters '
+                             f"with its final period); the limit is {MAX_STATEMENT_CHARS}")
+        pairs.append((model.strip(), statement))
     if len({m for m, _ in pairs}) != len(pairs):
         raise InputError("each route needs a different model")
     if len({w for _, w in pairs}) != len(pairs):

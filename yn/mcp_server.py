@@ -10,8 +10,9 @@ import sys
 import threading
 
 from mcp.server.mcpserver import MCPServer
-from typing_extensions import TypedDict  # pydantic needs this one before Python 3.12
 from mcp.server.mcpserver.exceptions import ToolError
+from pydantic import ConfigDict
+from typing_extensions import TypedDict  # pydantic needs this one before Python 3.12
 
 from yn.model import InputError, get_decider
 from yn.route import route_many
@@ -86,6 +87,9 @@ ROUTE_HELP = (
 
 
 class Route(TypedDict):
+    # Reject unknown keys, matching check_routes (and the CLI) instead of dropping them.
+    __pydantic_config__ = ConfigDict(extra="forbid")  # type: ignore[misc]
+
     model: str
     when: str
 
