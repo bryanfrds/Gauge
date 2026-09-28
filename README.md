@@ -90,6 +90,9 @@ standard way to give them extra tools). They hand YN the quick yes/no calls, lik
 "is this email urgent?" across 400 emails, and only think hard about the ones YN isn't
 sure about. It's faster and uses far less of your limits.
 
+It can also suggest **which AI model should handle a task** (`yn route`), so quick
+jobs go to cheap, fast models and hard ones go to the strongest.
+
 Details: [docs/CLAUDE-AND-CODEX.md](docs/CLAUDE-AND-CODEX.md)
 
 ## Why this exists

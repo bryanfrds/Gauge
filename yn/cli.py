@@ -3,10 +3,11 @@
     yn check "This email is spam." "You won a free iPhone!"
     echo "My card was charged twice" | yn decide -o billing -o shipping -o technical
     yn check "This is urgent." --lines < subjects.txt
+    yn route "Fix the typo in the README title"        # which model should do this?
 
 Exit codes with --exit-code (for scripts and hooks):
     check:  0 = true, 1 = false, 2 = not sure
-    decide: 0 = sure, 2 = not sure
+    decide, route: 0 = sure, 2 = not sure
 Always, with or without --exit-code:
     64 = bad request (usage, input), 3 = setup or model error.
     Anything other than 0/1/2 is an error. Never read it as an answer.
@@ -21,6 +22,7 @@ import os
 import sys
 
 from yn.model import Decider, InputError
+from yn.route import read_routes_file, route_many
 
 EXIT_FALSE, EXIT_UNSURE, EXIT_ERROR, EXIT_USAGE = 1, 2, 3, 64
 
@@ -77,6 +79,12 @@ def _parser() -> argparse.ArgumentParser:
     d.add_argument("-o", "--option", action="append", required=True, dest="options",
                    help="an option; repeat for each (labels or full statements)")
     d.add_argument("text", nargs="?", help="text to judge (default: stdin)")
+
+    r = sub.add_parser("route", parents=[common], help="pick a model for a task")
+    r.add_argument("--routes", metavar="FILE",
+                   help='JSON list of {"model": ..., "when": ...} (default: YN_ROUTES or '
+                        "built-in Claude models)")
+    r.add_argument("text", nargs="?", help="task description (default: stdin)")
     return p
 
 
@@ -87,8 +95,11 @@ def main(argv: list[str] | None = None) -> int:
         decider = Decider(threshold=args.threshold)
         if args.cmd == "check":
             results = decider.check_many(inputs, args.claim)
-        else:
+        elif args.cmd == "decide":
             results = decider.decide_many(inputs, args.options)
+        else:
+            routes = read_routes_file(args.routes) if args.routes else None
+            results = route_many(decider, inputs, routes)
     except InputError as e:
         print(f"yn: {e}", file=sys.stderr)
         return EXIT_USAGE

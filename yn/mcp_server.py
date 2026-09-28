@@ -11,8 +11,11 @@ import threading
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
+from pydantic import ConfigDict
+from typing_extensions import TypedDict  # pydantic needs this one before Python 3.12
 
 from yn.model import InputError, get_decider
+from yn.route import route_many
 
 WHEN_TO_USE = (
     "Use for fast, cheap decisions over text, especially many items at once: "
@@ -71,6 +74,37 @@ def yn_check_batch(inputs: list[str], claim: str) -> dict:
 @_bad_input_to_tool_error
 def yn_decide_batch(inputs: list[str], options: list[str]) -> dict:
     return {"results": [r.to_dict() for r in get_decider().decide_many(inputs, options)]}
+
+
+ROUTE_HELP = (
+    "Returns answer (the model name), confidence, scores per model and sure. "
+    "Default routes are the current Claude models, cheapest first: claude-haiku-4-5, "
+    "claude-sonnet-5, claude-opus-5-5, claude-fable-5-1. Pass `routes` as a list of "
+    '{"model": ..., "when": "a sentence describing tasks that model suits."} to use '
+    "your own (e.g. Codex models). The pick is a suggestion: if sure=false, choose "
+    "yourself; the stand-in model often confuses neighbouring tiers."
+)
+
+
+class Route(TypedDict):
+    # Reject unknown keys, matching check_routes (and the CLI) instead of dropping them.
+    __pydantic_config__ = ConfigDict(extra="forbid")  # type: ignore[misc]
+
+    model: str
+    when: str
+
+
+@mcp.tool(description="Suggest which AI model should handle a task. " + ROUTE_HELP)
+@_bad_input_to_tool_error
+def yn_route(task: str, routes: list[Route] | None = None) -> dict:
+    return route_many(get_decider(), [task], routes)[0].to_dict()
+
+
+@mcp.tool(description="yn_route over many tasks in one call. Returns one result per "
+          "task, in order. " + ROUTE_HELP)
+@_bad_input_to_tool_error
+def yn_route_batch(tasks: list[str], routes: list[Route] | None = None) -> dict:
+    return {"results": [r.to_dict() for r in route_many(get_decider(), tasks, routes)]}
 
 
 def _warm_up() -> None:

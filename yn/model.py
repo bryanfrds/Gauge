@@ -165,6 +165,12 @@ class Decider:
                 out.append(self._model(**enc).logits.float().cpu())
         return torch.cat(out)
 
+    def check_statements(self, statements: list[str]) -> None:
+        """Raise InputError if any statement is over the token limit. Loads the model."""
+        self.load()
+        with self._infer_lock:
+            self._check_statement_tokens(set(statements))
+
     def _check_statement_tokens(self, statements: set[str]) -> None:
         """Call with _infer_lock held (the tokenizer is shared)."""
         for s in statements:

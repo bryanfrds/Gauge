@@ -48,7 +48,7 @@ class FakeModel:
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch):
-    for var in ("YN_MODEL", "YN_THRESHOLD", "YN_DEVICE", "YN_VERBOSE"):
+    for var in ("YN_MODEL", "YN_THRESHOLD", "YN_DEVICE", "YN_VERBOSE", "YN_ROUTES"):
         monkeypatch.delenv(var, raising=False)
 
 
@@ -64,6 +64,7 @@ def fake_model(monkeypatch):
 
     monkeypatch.setattr(Decider, "_logits", fake_logits)
     monkeypatch.setattr(Decider, "load", no_load)
+    monkeypatch.setattr(Decider, "check_statements", lambda self, statements: None)
     return fake
 
 
