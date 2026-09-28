@@ -1,11 +1,63 @@
 # YN AI Model
 
-An open-source **decision model**: a small, fast AI that picks an answer from a list
-you give it and tells you how sure it is. It doesn't chat or write text.
+YN is a small, open-source AI that **answers yes or no**, true or false, and tells you
+how sure it is. That's all it does.
 
 > **Status:** design docs only. No code or trained model yet.
 
-## The idea in one example
+## It's not a chatbot
+
+Chat AIs like ChatGPT are **LLMs** (large language models). They write replies word by
+word, like someone typing. That makes them great at conversation, but:
+
+- they're **slow**, because every word takes time,
+- they're **expensive**, because they're huge and need powerful computers,
+- they can **ramble or go off-script**: you ask for "yes" or "no" and get a paragraph,
+  or an answer you didn't expect.
+
+YN doesn't write anything. It reads your question and gives back one of the answers
+you allowed, plus a number showing how confident it is. There's no typing and no
+rambling, so it can't give you an answer you didn't allow.
+
+## How it works
+
+1. **You give it something to judge.** A message, a review, a support ticket, any text.
+2. **You ask a question about it.** "Is this spam?"
+3. **YN scores each possible answer.** It checks how well "true" fits and how well
+   "false" fits, and gives each one a score.
+4. **You get the winner and its confidence.** `false`, 97% sure.
+
+Because it only scores answers instead of writing them, it's much smaller than an LLM.
+It can run on a normal laptop and answer in a few thousandths of a second.
+
+## Example: true or false
+
+You send:
+
+```json
+{
+  "input": "Congratulations!! You won a free iPhone, click here to claim",
+  "question": "Is this spam?",
+  "answers": ["true", "false"]
+}
+```
+
+YN sends back:
+
+```json
+{
+  "answer": "true",
+  "confidence": 0.98,
+  "scores": { "true": 0.98, "false": 0.02 }
+}
+```
+
+Your program reads `answer` and acts on it. You don't need to read or parse any text.
+
+## Example: more than two choices
+
+Yes/no is the core, but the same trick works for any short list of answers. YN scores
+every option and picks the best one.
 
 You send:
 
