@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "yn-model"
+version = "0.0.1"
+description = "Small, fast decision model: answers true/false or picks from a list, with confidence."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.14",
+    "transformers>=5.17",
+    "sentencepiece",
+    "protobuf",
+    "mcp>=2.2,<3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+yn = "yn.cli:main"
+yn-mcp = "yn.mcp_server:main"
+
+[tool.setuptools]
+packages = ["yn"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["slow: loads the real model (downloads ~370MB on first run)"]

@@ -147,8 +147,12 @@ A version ships only when:
 
 - **Python library:** `pip install yn-model`, then `yn.decide(input, answers)`.
 - **HTTP server:** one `POST /decide` endpoint implementing §2.
-- **CLI:** `yn "<question>" [--answers a,b,c]`, reading input from stdin and printing
-  `answer confidence`.
+- **CLI:** `yn check "<claim>"` and `yn decide -o <option> -o <option>`, reading input
+  from an argument or stdin and printing `answer confidence`. See
+  [CLAUDE-AND-CODEX.md](CLAUDE-AND-CODEX.md#terminal-command-yn).
+- **Stand-in interface note:** until YN's own model exists, the stand-in takes a
+  `claim` (a statement) instead of a `question`, and `options` instead of `answers`,
+  because it judges whether text supports a statement.
 - **MCP server:** `yn-mcp`, so Claude Code, Codex and other agents can call YN as a
   tool. Full design in [CLAUDE-AND-CODEX.md](CLAUDE-AND-CODEX.md).
 - **Weights:** published on Hugging Face, in safetensors format, plus ONNX (a portable

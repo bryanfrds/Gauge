@@ -3,7 +3,9 @@
 YN is a small, open-source AI that **answers yes or no**, true or false, and tells you
 how sure it is. That's all it does.
 
-> **Status:** design docs only. No code or trained model yet.
+> **Status:** early. The `yn` command and the Claude/Codex tool work today on a
+> borrowed stand-in model. YN's own model isn't trained yet. See
+> [docs/CLAUDE-AND-CODEX.md](docs/CLAUDE-AND-CODEX.md) to try it.
 
 ## It's not a chatbot
 
