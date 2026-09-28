@@ -66,6 +66,8 @@ or `codex mcp remove yn`.
 | `yn_decide` | Pick the best option | `input`, `options[]` (2–50) | `answer`, `confidence`, `scores`, `sure` |
 | `yn_check_batch` | `yn_check` over many texts | `inputs[]`, `claim` | `results[]`, one per input, in order |
 | `yn_decide_batch` | `yn_decide` over many texts | `inputs[]`, `options[]` | `results[]`, one per input, in order |
+| `yn_route` | Which AI model should do this task? | `task`, optional `routes[]` | `answer` (model name), `confidence`, `scores`, `sure` |
+| `yn_route_batch` | `yn_route` over many tasks | `tasks[]`, optional `routes[]` | `results[]`, one per task, in order |
 
 - **`claim` is a statement, not a question.** Write "This email is spam.", not
   "Is this spam?". The stand-in model judges whether the text supports a statement.
@@ -95,6 +97,9 @@ yn check "This email is spam." "You won a free iPhone, click here!"
 echo "My card was charged twice" | yn decide -o billing -o shipping -o technical
 # billing	0.98
 
+yn route "Fix the typo in the README title"
+# claude-haiku-4-5	0.90
+
 yn check "This message is urgent." --lines < subjects.txt     # one result per line
 yn decide --json -o "..." -o "..." "text"                      # full JSON output
 ```
@@ -117,6 +122,38 @@ longer document gets exit code 64 rather than being silently cut. Split it first
 
 Each `yn` run loads the model, which takes about 3–4 seconds. For many decisions,
 use `--lines` or the MCP server, which loads the model once and keeps it in memory.
+
+## Model routing: `yn route`
+
+Suggests which AI model should handle a task, so cheap tasks go to cheap models. It
+uses `decide` under the hood: each model has a sentence describing the tasks it suits.
+
+**Built-in routes** (the current Claude models, cheapest first):
+
+| Model | Suits |
+|---|---|
+| `claude-haiku-4-5` | Quick, simple tasks: small edits, lookups, renaming, formatting, one-line answers |
+| `claude-sonnet-5` | Everyday tasks: writing a function, fixing an ordinary bug, a short document |
+| `claude-opus-5-5` | Hard tasks: tricky debugging, system design, changes across many files |
+| `claude-fable-5-1` | Very hard, long or high-stakes work: big multi-step projects, deep research, problems other models failed at |
+
+**Your own routes** (for example Codex models): a JSON file with a list of
+`{"model": "...", "when": "A sentence describing tasks it suits."}`. Pass it with
+`yn route --routes FILE`, set `YN_ROUTES=FILE` to change the default everywhere, or
+pass `routes` to the MCP tools.
+
+```json
+[
+  {"model": "gpt-5-codex-mini", "when": "A quick, simple edit."},
+  {"model": "gpt-5-codex", "when": "A hard change across many files."}
+]
+```
+
+**Accuracy on the stand-in model: a rough suggestion, not a decision.** On 12 test
+tasks (3 per model) it picked the intended model **8 times**. Every miss was off by one
+level (for example Haiku instead of Sonnet), never cheapest-vs-most-expensive. It was
+unsure about 11 of the 12, which is the honest signal. When `sure` is false, choose
+yourself or go one model up.
 
 ## Automatic checks via hooks (idea, not built)
 

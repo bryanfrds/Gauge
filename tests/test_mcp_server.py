@@ -17,7 +17,9 @@ from yn.model import Decider
 pytestmark = pytest.mark.anyio
 
 CLAIM = "This email is spam."
-TOOLS = {"yn_check", "yn_decide", "yn_check_batch", "yn_decide_batch"}
+DECISION_TOOLS = {"yn_check", "yn_decide", "yn_check_batch", "yn_decide_batch"}
+ROUTE_TOOLS = {"yn_route", "yn_route_batch"}
+TOOLS = DECISION_TOOLS | ROUTE_TOOLS
 
 
 @pytest.fixture
@@ -42,10 +44,10 @@ async def call(name: str, args: dict):
 
 # --- registration --------------------------------------------------------------------
 
-async def test_exactly_four_tools_registered():
+async def test_exactly_six_tools_registered():
     tools = await server.mcp.list_tools()
     assert {t.name for t in tools} == TOOLS
-    assert len(tools) == 4
+    assert len(tools) == 6
 
 
 @pytest.mark.parametrize("name, params", [
@@ -64,7 +66,10 @@ async def test_tool_input_schema_matches_function_signature(name, params):
 
 async def test_every_tool_description_includes_when_to_use():
     for t in await server.mcp.list_tools():
-        assert server.WHEN_TO_USE in t.description
+        if t.name in DECISION_TOOLS:
+            assert server.WHEN_TO_USE in t.description
+        else:
+            assert server.ROUTE_HELP in t.description
 
 
 # --- successful calls ----------------------------------------------------------------
@@ -143,3 +148,26 @@ async def test_wrong_argument_type_is_rejected_before_model(decider, fake_model)
     with pytest.raises(ToolError):
         await server.mcp.call_tool("yn_decide", {"input": "t", "options": "a,b"})
     assert fake_model.calls == []
+
+
+# --- routing tools --------------------------------------------------------------------
+
+async def test_yn_route_returns_model_name(decider, fake_model):
+    routes = [{"model": "small", "when": "A quick edit."},
+              {"model": "big", "when": "A hard project."}]
+    fake_model.entail[("fix typo", "A quick edit.")] = fake_model.decide_logit(9)
+    fake_model.entail[("fix typo", "A hard project.")] = fake_model.decide_logit(1)
+    out = await call("yn_route", {"task": "fix typo", "routes": routes})
+    assert out["answer"] == "small" and out["scores"] == {"small": 0.9, "big": 0.1}
+
+
+async def test_yn_route_batch_defaults_to_claude_models(decider, fake_model):
+    out = await call("yn_route_batch", {"tasks": ["a", "b"]})
+    assert len(out["results"]) == 2
+    assert "claude-haiku-4-5" in out["results"][0]["scores"]
+
+
+async def test_yn_route_bad_routes_is_tool_error(decider, fake_model):
+    with pytest.raises(ToolError, match='exactly "model" and "when"') as e:
+        await server.mcp.call_tool("yn_route", {"task": "x", "routes": [{"model": "a"}, {"model": "b"}]})
+    assert not isinstance(e.value, UnexpectedToolError)

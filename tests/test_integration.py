@@ -65,7 +65,8 @@ async def test_mcp_stdio_round_trip(tmp_path):
                 await session.initialize()
                 tools = await session.list_tools()
                 assert {t.name for t in tools.tools} == {
-                    "yn_check", "yn_decide", "yn_check_batch", "yn_decide_batch"}
+                    "yn_check", "yn_decide", "yn_check_batch", "yn_decide_batch",
+                    "yn_route", "yn_route_batch"}
                 result = await session.call_tool("yn_check", {
                     "input": "URGENT: production database is down, customers can't pay",
                     "claim": "This message is urgent.",
@@ -82,3 +83,17 @@ def test_long_non_latin_claim_is_clear_input_error(real_decider):
         real_decider.check("服务器宕机了", claim)
     # The model still works afterwards.
     assert real_decider.check("You won a free iPhone, click here!", "This email is spam.").answer == "true"
+
+
+def test_route_obvious_small_task_to_cheapest_model(real_decider):
+    from yn.route import route_many
+    r = route_many(real_decider, ["Fix the typo in the README title"])[0]
+    assert r.answer == "claude-haiku-4-5"
+
+
+def test_route_with_custom_routes(real_decider):
+    from yn.route import route_many
+    routes = [{"model": "small", "when": "A quick simple edit."},
+              {"model": "big", "when": "A hard multi-file change."}]
+    r = route_many(real_decider, ["Refactor the auth module across 30 files"], routes)[0]
+    assert r.answer == "big"
