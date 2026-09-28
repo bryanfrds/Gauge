@@ -85,6 +85,7 @@ def test_long_non_latin_claim_is_clear_input_error(real_decider):
     assert real_decider.check("You won a free iPhone, click here!", "This email is spam.").answer == "true"
 
 
+# Pinned to the stand-in model's behaviour; revisit when YN's own model replaces it.
 def test_route_obvious_small_task_to_cheapest_model(real_decider):
     from yn.route import route_many
     r = route_many(real_decider, ["Fix the typo in the README title"])[0]
@@ -97,3 +98,15 @@ def test_route_with_custom_routes(real_decider):
               {"model": "big", "when": "A hard multi-file change."}]
     r = route_many(real_decider, ["Refactor the auth module across 30 files"], routes)[0]
     assert r.answer == "big"
+
+
+def test_long_cjk_when_in_yn_routes_is_setup_error(real_decider, tmp_path, monkeypatch):
+    from yn.model import MAX_STATEMENT_CHARS
+    from yn.route import route_many
+    when = "这类任务需要非常仔细的推理和规划" * 55
+    assert len(when) < MAX_STATEMENT_CHARS
+    p = tmp_path / "r.json"
+    p.write_text(json.dumps([{"model": "a", "when": when}, {"model": "b", "when": "A quick edit."}]))
+    monkeypatch.setenv("YN_ROUTES", str(p))
+    with pytest.raises(RuntimeError, match="YN_ROUTES: .*tokens"):
+        route_many(real_decider, ["fix typo"])

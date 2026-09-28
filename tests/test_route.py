@@ -132,3 +132,49 @@ def test_cli_bad_routes_file_is_usage_error(fake_model, tmp_path, capsys):
 def test_cli_bad_yn_routes_env_is_setup_error(fake_model, tmp_path, monkeypatch):
     monkeypatch.setenv("YN_ROUTES", str(tmp_path / "nope.json"))
     assert main(["route", TASK]) == EXIT_ERROR
+
+
+def test_whitespace_only_difference_in_model_is_duplicate():
+    with pytest.raises(InputError, match="different model"):
+        check_routes([{"model": " a ", "when": "x"}, {"model": "a", "when": "y"}])
+
+
+def test_overlong_when_is_input_error():
+    with pytest.raises(InputError, match='route 0: "when" is 1001 characters'):
+        check_routes([{"model": "a", "when": "x" * 1001}, ROUTES[1]])
+
+
+def test_overlong_when_in_yn_routes_is_setup_error(decider, tmp_path, monkeypatch):
+    p = tmp_path / "r.json"
+    p.write_text(json.dumps([{"model": "a", "when": "x" * 1001}, ROUTES[1]]))
+    monkeypatch.setenv("YN_ROUTES", str(p))
+    with pytest.raises(RuntimeError, match="YN_ROUTES") as e:
+        route_many(decider, [TASK])
+    assert not isinstance(e.value, InputError)
+
+
+def test_token_limit_on_yn_routes_is_setup_error(decider, monkeypatch):
+    """Statements can pass the character check but fail the token check (e.g. CJK)."""
+    def too_long(self, statements):
+        raise InputError("a claim or option is 900 tokens; the limit is 400. Shorten it.")
+    monkeypatch.setattr("yn.model.Decider.check_statements", too_long)
+    with pytest.raises(RuntimeError, match="YN_ROUTES: a claim or option is 900 tokens"):
+        route_many(decider, [TASK])
+    with pytest.raises(InputError):  # the same problem in caller-supplied routes
+        route_many(decider, [TASK], ROUTES)
+
+
+def test_cli_routes_flag_overrides_yn_routes(fake_model, tmp_path, monkeypatch, capsys):
+    p = tmp_path / "r.json"
+    p.write_text(json.dumps(ROUTES))
+    monkeypatch.setenv("YN_ROUTES", str(tmp_path / "missing.json"))  # would error if read
+    set_weights(fake_model, TASK, {"small": 9, "big": 1})
+    assert main(["route", "--routes", str(p), TASK]) == 0
+    assert capsys.readouterr().out == "small\t0.90\n"
+
+
+def test_cli_overlong_when_in_yn_routes_exits_3(fake_model, tmp_path, monkeypatch):
+    p = tmp_path / "r.json"
+    p.write_text(json.dumps([{"model": "a", "when": "x" * 1001}, ROUTES[1]]))
+    monkeypatch.setenv("YN_ROUTES", str(p))
+    assert main(["route", TASK]) == EXIT_ERROR

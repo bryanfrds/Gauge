@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import os
 
-from yn.model import MAX_OPTIONS, Decider, Decision, InputError
+from yn.model import MAX_OPTIONS, MAX_STATEMENT_CHARS, Decider, Decision, InputError
 
 # Current Claude models, cheapest first. Statements are full sentences because the
 # stand-in model scores those far better than bare labels.
@@ -41,6 +41,9 @@ def check_routes(routes) -> list[tuple[str, str]]:
         if not all(isinstance(v, str) and v.strip() for v in (model, when)):
             raise InputError(f'route {i}: "model" and "when" must be non-empty text')
         when = when.strip()
+        if len(when) > MAX_STATEMENT_CHARS:
+            raise InputError(f'route {i}: "when" is {len(when)} characters; the limit '
+                             f"is {MAX_STATEMENT_CHARS}")
         # A statement, so the model judges it directly instead of via a label template.
         pairs.append((model.strip(), when if when[-1] in ".!?" else when + "."))
     if len({m for m, _ in pairs}) != len(pairs):
@@ -77,8 +80,19 @@ def default_routes() -> list[dict]:
 
 def route_many(decider: Decider, tasks: list[str], routes: list[dict] | None = None,
                ) -> list[Decision]:
-    """Pick a model for each task. `answer` and `scores` use model names."""
-    pairs = check_routes(routes if routes is not None else default_routes())
+    """Pick a model for each task. `answer` and `scores` use model names.
+
+    Routes from YN_ROUTES are server config, so problems with them raise RuntimeError
+    (never InputError), and the caller isn't told its request was bad.
+    """
+    from_config = routes is None
+    try:
+        pairs = check_routes(default_routes() if from_config else routes)
+        decider.check_statements([when for _, when in pairs])
+    except InputError as e:
+        if from_config:
+            raise RuntimeError(f"YN_ROUTES: {e}") from e
+        raise
     model_for = {when: model for model, when in pairs}
     results = decider.decide_many(tasks, [when for _, when in pairs])
     return [

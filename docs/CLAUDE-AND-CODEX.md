@@ -142,6 +142,11 @@ uses `decide` under the hood: each model has a sentence describing the tasks it 
 `yn route --routes FILE`, set `YN_ROUTES=FILE` to change the default everywhere, or
 pass `routes` to the MCP tools.
 
+Write each `when` as a full sentence. Unlike `decide` options, route descriptions are
+not wrapped in a template, so a bare label like "quick edits" scores worse. `YN_ROUTES`
+is re-read on every call, so edits take effect without a restart. A broken `YN_ROUTES`
+file is reported as a setup error (exit 3), never as a problem with the request.
+
 ```json
 [
   {"model": "gpt-5-codex-mini", "when": "A quick, simple edit."},
@@ -154,6 +159,10 @@ tasks (3 per model) it picked the intended model **8 times**. Every miss was off
 level (for example Haiku instead of Sonnet), never cheapest-vs-most-expensive. It was
 unsure about 11 of the 12, which is the honest signal. When `sure` is false, choose
 yourself or go one model up.
+
+The tasks are in `eval/route_tasks.json`. Re-measure with
+`.venv/bin/python eval/route_eval.py`, for example after changing route wording or
+swapping in a new model. Twelve tasks is a smoke test, not a benchmark.
 
 ## Automatic checks via hooks (idea, not built)
 

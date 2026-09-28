@@ -55,13 +55,16 @@ async def test_exactly_six_tools_registered():
     ("yn_decide", {"input", "options"}),
     ("yn_check_batch", {"inputs", "claim"}),
     ("yn_decide_batch", {"inputs", "options"}),
+    ("yn_route", {"task", "routes"}),
+    ("yn_route_batch", {"tasks", "routes"}),
 ])
 async def test_tool_input_schema_matches_function_signature(name, params):
     # Guards the error-wrapping decorator: without functools.wraps the schema
     # would be (*args, **kwargs).
     tool = {t.name: t for t in await server.mcp.list_tools()}[name]
     assert set(tool.input_schema["properties"]) == params
-    assert set(tool.input_schema["required"]) == params
+    # `routes` is optional; everything else is required.
+    assert set(tool.input_schema["required"]) == params - {"routes"}
 
 
 async def test_every_tool_description_includes_when_to_use():
@@ -164,10 +167,37 @@ async def test_yn_route_returns_model_name(decider, fake_model):
 async def test_yn_route_batch_defaults_to_claude_models(decider, fake_model):
     out = await call("yn_route_batch", {"tasks": ["a", "b"]})
     assert len(out["results"]) == 2
-    assert "claude-haiku-4-5" in out["results"][0]["scores"]
+    assert set(out["results"][0]["scores"]) == {
+        "claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5-5", "claude-fable-5-1"}
 
 
 async def test_yn_route_bad_routes_is_tool_error(decider, fake_model):
-    with pytest.raises(ToolError, match='exactly "model" and "when"') as e:
+    # The schema rejects a missing field before our code runs...
+    with pytest.raises(ToolError, match="when") as e:
         await server.mcp.call_tool("yn_route", {"task": "x", "routes": [{"model": "a"}, {"model": "b"}]})
     assert not isinstance(e.value, UnexpectedToolError)
+    # ...and our own checks catch what the schema can't.
+    dup = [{"model": "a", "when": "Same."}, {"model": "b", "when": "Same."}]
+    with pytest.raises(ToolError, match='different "when"') as e:
+        await server.mcp.call_tool("yn_route", {"task": "x", "routes": dup})
+    assert not isinstance(e.value, UnexpectedToolError)
+
+
+async def test_route_schema_describes_model_and_when():
+    tool = {t.name: t for t in await server.mcp.list_tools()}["yn_route"]
+    text = str(tool.input_schema)
+    assert "model" in text and "when" in text
+
+
+@pytest.mark.parametrize("routes_file", [
+    None,  # missing file
+    [{"model": "a", "when": "x" * 1200}, {"model": "b", "when": "y"}],  # over the limit
+])
+async def test_bad_yn_routes_is_not_blamed_on_caller(decider, fake_model, tmp_path,
+                                                     monkeypatch, routes_file):
+    p = tmp_path / "routes.json"
+    if routes_file is not None:
+        p.write_text(json.dumps(routes_file))
+    monkeypatch.setenv("YN_ROUTES", str(p))
+    with pytest.raises(UnexpectedToolError):
+        await server.mcp.call_tool("yn_route", {"task": "fix typo"})

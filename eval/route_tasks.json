@@ -1,0 +1,14 @@
+[
+  {"task": "Rename the variable x to count in utils.py", "expect": "claude-haiku-4-5"},
+  {"task": "What's the capital of France?", "expect": "claude-haiku-4-5"},
+  {"task": "Fix the typo in the README title", "expect": "claude-haiku-4-5"},
+  {"task": "Write a Python function that parses a CSV and returns the average of a column", "expect": "claude-sonnet-5"},
+  {"task": "Fix the bug where the login button doesn't disable after clicking", "expect": "claude-sonnet-5"},
+  {"task": "Draft a short email to the team about Friday's release", "expect": "claude-sonnet-5"},
+  {"task": "Our app randomly deadlocks under load; find the race condition", "expect": "claude-opus-5-5"},
+  {"task": "Design the database schema and API for a multi-tenant billing system", "expect": "claude-opus-5-5"},
+  {"task": "Refactor the auth module across 30 files to use the new session library", "expect": "claude-opus-5-5"},
+  {"task": "Migrate our whole monolith to microservices, with a plan, code and tests, over the next week", "expect": "claude-fable-5-1"},
+  {"task": "Research and write a 20-page report comparing every vector database, with benchmarks", "expect": "claude-fable-5-1"},
+  {"task": "Sonnet and Opus both failed to fix this memory corruption in our C++ engine; try again", "expect": "claude-fable-5-1"}
+]

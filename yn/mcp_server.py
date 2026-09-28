@@ -10,6 +10,7 @@ import sys
 import threading
 
 from mcp.server.mcpserver import MCPServer
+from typing_extensions import TypedDict  # pydantic needs this one before Python 3.12
 from mcp.server.mcpserver.exceptions import ToolError
 
 from yn.model import InputError, get_decider
@@ -84,16 +85,21 @@ ROUTE_HELP = (
 )
 
 
+class Route(TypedDict):
+    model: str
+    when: str
+
+
 @mcp.tool(description="Suggest which AI model should handle a task. " + ROUTE_HELP)
 @_bad_input_to_tool_error
-def yn_route(task: str, routes: list[dict[str, str]] | None = None) -> dict:
+def yn_route(task: str, routes: list[Route] | None = None) -> dict:
     return route_many(get_decider(), [task], routes)[0].to_dict()
 
 
 @mcp.tool(description="yn_route over many tasks in one call. Returns one result per "
           "task, in order. " + ROUTE_HELP)
 @_bad_input_to_tool_error
-def yn_route_batch(tasks: list[str], routes: list[dict[str, str]] | None = None) -> dict:
+def yn_route_batch(tasks: list[str], routes: list[Route] | None = None) -> dict:
     return {"results": [r.to_dict() for r in route_many(get_decider(), tasks, routes)]}
 
 
