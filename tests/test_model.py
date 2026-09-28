@@ -375,3 +375,74 @@ def test_bad_threshold_env_raises_runtime_error(monkeypatch):
     monkeypatch.setenv("YN_THRESHOLD", "abc")
     with pytest.raises(RuntimeError, match="YN_THRESHOLD"):
         Decider()
+
+
+# --- size limits -----------------------------------------------------------------------
+
+def test_too_many_inputs_rejected(decider, fake_model):
+    from yn.model import MAX_INPUTS, InputError
+    with pytest.raises(InputError, match="at most"):
+        decider.check_many(["x"] * (MAX_INPUTS + 1), "This is spam.")
+    assert fake_model.calls == []
+
+
+def test_too_many_pairs_rejected(decider, fake_model):
+    from yn.model import MAX_PAIRS, InputError
+    options = [f"option {i}" for i in range(50)]
+    with pytest.raises(InputError, match="Split the inputs"):
+        decider.decide_many(["x"] * (MAX_PAIRS // 50 + 1), options)
+    assert fake_model.calls == []
+
+
+def test_overlong_input_and_claim_rejected(decider):
+    from yn.model import MAX_INPUT_CHARS, MAX_STATEMENT_CHARS, InputError
+    with pytest.raises(InputError, match="input is"):
+        decider.check("x" * (MAX_INPUT_CHARS + 1), "This is spam.")
+    with pytest.raises(InputError, match="claim is"):
+        decider.check("hello", "x" * (MAX_STATEMENT_CHARS + 1))
+    with pytest.raises(InputError, match="each option is"):
+        decider.decide("hello", ["a", "x" * (MAX_STATEMENT_CHARS + 1)])
+
+
+def test_inference_never_overlaps(monkeypatch):
+    """Regression: parallel MCP calls ran the model concurrently and crashed the Apple GPU.
+
+    Exercises the real `_logits` with a fake tokenizer and a slow fake model.
+    """
+    import threading
+    import time
+    from types import SimpleNamespace
+
+    import torch
+
+    active = peak = 0
+    guard = threading.Lock()
+
+    class Batch(dict):
+        def to(self, device):
+            return self
+
+    def tokenizer(texts, statements, **kw):
+        return Batch(n=len(texts))
+
+    def model(n):
+        nonlocal active, peak
+        with guard:
+            active += 1
+            peak = max(peak, active)
+        time.sleep(0.02)
+        with guard:
+            active -= 1
+        return SimpleNamespace(logits=torch.zeros(n, 2))
+
+    d = Decider(model_name="fake-model", device="cpu")
+    d._tokenizer, d._model = tokenizer, model
+    monkeypatch.setattr(Decider, "load", lambda self: None)
+
+    threads = [threading.Thread(target=d.check_many, args=(["a", "b"], "This is spam."))
+               for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert peak == 1

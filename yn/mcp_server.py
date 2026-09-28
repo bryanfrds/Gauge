@@ -12,7 +12,7 @@ import threading
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
-from yn.model import get_decider
+from yn.model import InputError, get_decider
 
 WHEN_TO_USE = (
     "Use for fast, cheap decisions over text, especially many items at once: "
@@ -29,13 +29,14 @@ mcp = MCPServer(
 
 
 def _bad_input_to_tool_error(fn):
-    """Show the agent why a request was rejected, instead of a generic crash."""
+    """Show the agent why its request was rejected. Other errors stay generic, so a
+    setup problem is never blamed on the caller."""
 
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
         try:
             return fn(*args, **kwargs)
-        except ValueError as e:
+        except InputError as e:
             raise ToolError(str(e)) from e
 
     return wrapper

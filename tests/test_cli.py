@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from yn.cli import EXIT_FALSE, EXIT_UNSURE, EXIT_USAGE, _parser, main
+from yn.cli import EXIT_ERROR, EXIT_FALSE, EXIT_UNSURE, EXIT_USAGE, _parser, main
 from yn.model import DEFAULT_MODEL
 
 CLAIM = "This email is spam."
@@ -60,19 +60,26 @@ def test_parse_decide_repeated_options_in_order():
 def test_parse_decide_requires_option(capsys):
     with pytest.raises(SystemExit) as e:
         _parser().parse_args(["decide", "txt"])
-    assert e.value.code == 2
+    assert e.value.code == EXIT_USAGE  # not 2, which means "unsure"
 
 
 def test_parse_requires_subcommand():
     with pytest.raises(SystemExit) as e:
         _parser().parse_args([])
-    assert e.value.code == 2
+    assert e.value.code == EXIT_USAGE
 
 
 def test_parse_rejects_non_numeric_threshold():
     with pytest.raises(SystemExit) as e:
         _parser().parse_args(["check", CLAIM, "x", "--threshold", "high"])
-    assert e.value.code == 2
+    assert e.value.code == EXIT_USAGE
+
+
+@pytest.mark.parametrize("bad", ["5", "-0.1", "1.01"])
+def test_parse_rejects_out_of_range_threshold(bad):
+    with pytest.raises(SystemExit) as e:
+        _parser().parse_args(["check", CLAIM, "x", "--threshold", bad])
+    assert e.value.code == EXIT_USAGE
 
 
 # --- input sources -------------------------------------------------------------------
@@ -107,18 +114,19 @@ def test_lines_applies_to_text_argument(fake_model, capsys):
     assert texts == ["x", "x", "y", "y"]
 
 
-def test_lines_with_only_blank_lines_prints_nothing_and_exits_zero(fake_model, stdin, capsys):
+def test_lines_with_only_blank_lines_is_usage_error(fake_model, stdin, capsys):
+    # Exiting 0 would read as "true" to a hook.
     stdin("\n  \n")
-    assert main(["check", CLAIM, "--lines", "--exit-code"]) == 0
-    assert capsys.readouterr().out == ""
+    assert main(["check", CLAIM, "--lines", "--exit-code"]) == EXIT_USAGE
+    out, err = capsys.readouterr()
+    assert out == "" and "no non-blank lines" in err
     assert fake_model.calls == []
 
 
-def test_no_input_on_tty_exits_with_message(fake_model, monkeypatch):
+def test_no_input_on_tty_exits_with_message(fake_model, monkeypatch, capsys):
     monkeypatch.setattr("sys.stdin", TTY())
-    with pytest.raises(SystemExit) as e:
-        main(["check", CLAIM])
-    assert "no input" in str(e.value.code)
+    assert main(["check", CLAIM]) == EXIT_USAGE
+    assert "no input" in capsys.readouterr().err
 
 
 # --- output format -------------------------------------------------------------------
@@ -270,7 +278,16 @@ def test_two_places_rounds_down(conf, shown):
 @pytest.mark.parametrize("bad", ["abc", "1.5", "-0.1"])
 def test_bad_threshold_env_is_clear_error_not_traceback(fake_model, monkeypatch, capsys, bad):
     monkeypatch.setenv("YN_THRESHOLD", bad)
-    assert main(["check", "This is spam.", "hello"]) == EXIT_USAGE
+    assert main(["check", "This is spam.", "hello"]) == EXIT_ERROR
     err = capsys.readouterr().err
     assert "YN_THRESHOLD must be a number from 0 to 1" in err
     assert "Traceback" not in err
+
+
+def test_unexpected_error_is_exit_3_not_false(fake_model, monkeypatch, capsys):
+    # A crash must never look like "false" (exit 1) to a hook.
+    def boom(self, texts, claim):
+        raise OSError("model files missing")
+    monkeypatch.setattr("yn.model.Decider.check_many", boom)
+    assert main(["check", CLAIM, "hello", "--exit-code"]) == EXIT_ERROR
+    assert "OSError: model files missing" in capsys.readouterr().err

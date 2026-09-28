@@ -77,6 +77,10 @@ or `codex mcp remove yn`.
 - **Batch tools matter most:** one call for 100 items is far faster than 100 calls.
 - A bad request (for example, 1 option or empty text) returns an error message saying
   what's wrong, so the agent can fix it and retry.
+- **Limits per call:** 1,000 inputs, 20,000 input × option pairs, 20,000 characters
+  per input, and 1,000 characters per claim or option. Larger jobs get a clear error
+  asking the agent to split them.
+- Parallel calls are safe. They run one at a time on the model.
 
 The tool descriptions tell the agent when to use YN (filtering, flagging, sorting,
 routing) and when not to (reasoning, facts, maths, writing).
@@ -88,7 +92,7 @@ yn check "This email is spam." "You won a free iPhone, click here!"
 # true	0.99
 
 echo "My card was charged twice" | yn decide -o billing -o shipping -o technical
-# billing	0.97
+# billing	0.98
 
 yn check "This message is urgent." --lines < subjects.txt     # one result per line
 yn decide --json -o "..." -o "..." "text"                      # full JSON output
@@ -101,6 +105,10 @@ carries the answer, which is useful in scripts and hooks:
 |---|---|---|---|
 | `check` | true | false | not sure |
 | `decide` | sure | — | not sure |
+
+Errors always use other codes, with or without `--exit-code`: **64** means a bad request
+(missing input, bad option or flag), and **3** means a setup or model problem. A script
+or hook must treat anything other than 0, 1 or 2 as "no answer", never as "false".
 
 Each `yn` run loads the model, which takes about 3–4 seconds. For many decisions,
 use `--lines` or the MCP server, which loads the model once and keeps it in memory.

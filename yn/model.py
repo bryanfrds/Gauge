@@ -16,7 +16,15 @@ DEFAULT_MODEL = "MoritzLaurer/deberta-v3-base-zeroshot-v2.0"
 DEFAULT_THRESHOLD = 0.85
 DEFAULT_TEMPLATE = "This text is about {}."
 MAX_OPTIONS = 50
+MAX_INPUTS = 1000
+MAX_PAIRS = 20_000  # inputs x options; roughly 30 s on an Apple Silicon GPU
+MAX_INPUT_CHARS = 20_000
+MAX_STATEMENT_CHARS = 1_000  # claims and options must fit in the model's 512 tokens
 BATCH_SIZE = 16
+
+
+class InputError(ValueError):
+    """The caller's request is invalid (as opposed to a setup or library problem)."""
 
 
 @dataclass
@@ -65,19 +73,30 @@ def _env_threshold() -> float:
     return value
 
 
-def _check_text(text: str, what: str) -> str:
+def _check_text(text: str, what: str, max_chars: int = MAX_INPUT_CHARS) -> str:
     if not isinstance(text, str) or not text.strip():
-        raise ValueError(f"{what} must be a non-empty string")
+        raise InputError(f"{what} must be a non-empty string")
+    if len(text) > max_chars:
+        raise InputError(f"{what} is {len(text)} characters; the limit is {max_chars}")
     return text
+
+
+def _check_texts(texts: list[str], per_text: int = 1) -> list[str]:
+    if len(texts) > MAX_INPUTS:
+        raise InputError(f"at most {MAX_INPUTS} inputs per call, got {len(texts)}")
+    if len(texts) * per_text > MAX_PAIRS:
+        raise InputError(f"inputs x options is {len(texts) * per_text}; the limit is "
+                         f"{MAX_PAIRS}. Split the inputs across several calls.")
+    return [_check_text(t, "input") for t in texts]
 
 
 def _check_options(options: list[str]) -> list[str]:
     if not 2 <= len(options) <= MAX_OPTIONS:
-        raise ValueError(f"options must have 2-{MAX_OPTIONS} items, got {len(options)}")
+        raise InputError(f"options must have 2-{MAX_OPTIONS} items, got {len(options)}")
     for o in options:
-        _check_text(o, "each option")
+        _check_text(o, "each option", MAX_STATEMENT_CHARS)
     if len({o.strip() for o in options}) != len(options):
-        raise ValueError("options must be unique")
+        raise InputError("options must be unique")
     return options
 
 
@@ -96,7 +115,10 @@ class Decider:
         self._model = None
         self._tokenizer = None
         self._entail_idx = 0
-        self._lock = threading.Lock()
+        self._lock = threading.Lock()  # guards loading
+        # Guards inference. MCP runs tool calls in parallel worker threads, and
+        # concurrent use of one model on the Apple GPU aborts the whole process.
+        self._infer_lock = threading.Lock()
 
     def load(self) -> None:
         with self._lock:
@@ -122,9 +144,9 @@ class Decider:
         """Raw logits, shape (len(pairs), num_labels), for (text, statement) pairs."""
         import torch
 
-        self.load()
+        self.load()  # outside _infer_lock: load() takes its own lock
         out = []
-        with torch.inference_mode():
+        with self._infer_lock, torch.inference_mode():
             for i in range(0, len(pairs), BATCH_SIZE):
                 chunk = pairs[i : i + BATCH_SIZE]
                 enc = self._tokenizer(
@@ -147,8 +169,8 @@ class Decider:
 
     def check_many(self, texts: list[str], claim: str) -> list[Decision]:
         """True/false: is `claim` true of each text?"""
-        claim = _check_text(claim, "claim")
-        texts = [_check_text(t, "input") for t in texts]
+        claim = _check_text(claim, "claim", MAX_STATEMENT_CHARS)
+        texts = _check_texts(texts)
         if not texts:
             return []
         logits = self._logits([(t, claim) for t in texts])
@@ -159,7 +181,7 @@ class Decider:
     def decide_many(self, texts: list[str], options: list[str]) -> list[Decision]:
         """Pick the best-fitting option for each text."""
         options = _check_options(options)
-        texts = [_check_text(t, "input") for t in texts]
+        texts = _check_texts(texts, per_text=len(options))
         if not texts:
             return []
         statements = [_as_statement(o, self.template) for o in options]

@@ -7,6 +7,9 @@
 Exit codes with --exit-code (for scripts and hooks):
     check:  0 = true, 1 = false, 2 = not sure
     decide: 0 = sure, 2 = not sure
+Always, with or without --exit-code:
+    64 = bad request (usage, input), 3 = setup or model error.
+    Anything other than 0/1/2 is an error. Never read it as an answer.
 """
 
 from __future__ import annotations
@@ -16,9 +19,26 @@ import json
 import math
 import sys
 
-from yn.model import Decider
+from yn.model import Decider, InputError
 
-EXIT_FALSE, EXIT_UNSURE, EXIT_USAGE = 1, 2, 64
+EXIT_FALSE, EXIT_UNSURE, EXIT_ERROR, EXIT_USAGE = 1, 2, 3, 64
+
+
+class _Parser(argparse.ArgumentParser):
+    def error(self, message: str):
+        # argparse's default exit 2 would read as "not sure".
+        self.print_usage(sys.stderr)
+        self.exit(EXIT_USAGE, f"{self.prog}: error: {message}\n")
+
+
+def _threshold(value: str) -> float:
+    try:
+        t = float(value)
+    except ValueError:
+        t = -1.0
+    if not 0 <= t <= 1:
+        raise argparse.ArgumentTypeError(f"must be a number from 0 to 1, got {value!r}")
+    return t
 
 
 def _two_places(confidence: float) -> str:
@@ -29,21 +49,24 @@ def _two_places(confidence: float) -> str:
 def _read_inputs(text: str | None, lines: bool) -> list[str]:
     if text is None:
         if sys.stdin.isatty():
-            raise SystemExit("yn: no input. Pass text as an argument or pipe it in.")
+            raise InputError("no input. Pass text as an argument or pipe it in.")
         text = sys.stdin.read()
-    if lines:
-        return [ln for ln in text.splitlines() if ln.strip()]
-    return [text]
+    if not lines:
+        return [text]
+    inputs = [ln for ln in text.splitlines() if ln.strip()]
+    if not inputs:
+        raise InputError("--lines got no non-blank lines")
+    return inputs
 
 
 def _parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="yn", description="Fast true/false and pick-one decisions.")
-    common = argparse.ArgumentParser(add_help=False)
+    p = _Parser(prog="yn", description="Fast true/false and pick-one decisions.")
+    common = _Parser(add_help=False)
     common.add_argument("--json", action="store_true", help="print full JSON results")
     common.add_argument("--lines", action="store_true", help="treat each input line separately")
-    common.add_argument("--threshold", type=float, help="confidence needed to count as sure")
+    common.add_argument("--threshold", type=_threshold, help="confidence needed to count as sure")
     common.add_argument("--exit-code", action="store_true", help="set exit code from the answer")
-    sub = p.add_subparsers(dest="cmd", required=True)
+    sub = p.add_subparsers(dest="cmd", required=True, parser_class=_Parser)
 
     c = sub.add_parser("check", parents=[common], help="is a statement true of the text?")
     c.add_argument("claim", help='statement to test, e.g. "This email is spam."')
@@ -58,16 +81,19 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    inputs = _read_inputs(args.text, args.lines)
     try:
+        inputs = _read_inputs(args.text, args.lines)
         decider = Decider(threshold=args.threshold)
         if args.cmd == "check":
             results = decider.check_many(inputs, args.claim)
         else:
             results = decider.decide_many(inputs, args.options)
-    except (ValueError, RuntimeError) as e:
+    except InputError as e:
         print(f"yn: {e}", file=sys.stderr)
         return EXIT_USAGE
+    except Exception as e:  # model missing, bad config, library failure
+        print(f"yn: error: {type(e).__name__}: {e}", file=sys.stderr)
+        return EXIT_ERROR
 
     for r in results:
         if args.json:
