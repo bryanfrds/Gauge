@@ -104,6 +104,9 @@ Commercial "decision-only" models exist, such as [Jev](https://typesafe.ai/blog/
 from TypeSafe AI, which launched in September 2026. YN is an open-source take on the
 same idea, so anyone can run, inspect and improve it.
 
+Others have built open single-task versions, such as one for predicting sales. YN aims
+to be the open **general-purpose** one. See [Related work](docs/SPEC.md#9-related-work).
+
 ## Goals
 
 1. **One model, many decisions.** Give it a new list of answers and it works without

@@ -170,10 +170,31 @@ yn-ai-model/
   tests/
 ```
 
-## 9. Open questions
+## 9. Related work
+
+Other projects built on the same idea: score answers instead of writing text.
+
+| Project | What it does | Open? | How YN differs |
+|---|---|---|---|
+| **Jev** by TypeSafe AI ([blog](https://typesafe.ai/blog/introducing-system-one-models-and-jev), Sept 2026) | General decision model: typed answers from a predefined set, with calibrated probabilities. Non-autoregressive with parallel sampling (scores all options at once, not word by word). Trained with **RLCD** (Reinforcement Learning for Calibrated Decisions) so its confidence is honest. | ❌ No weights, paper or dataset | Same goal, fully open |
+| **SalesRLAgent** by Nandakishor M ([paper](https://arxiv.org/abs/2503.23303), Mar 2025; [model](https://huggingface.co/DeepMostInnovations/sales-conversion-model-reinf-learning), MIT; [dataset](https://huggingface.co/datasets/DeepMostInnovations/saas-sales-conversations)) | Predicts sales conversion probability (0–1) after each turn of a sales chat. PPO (a reinforcement learning method) over text embeddings. Trained on GPT-4o-generated conversations. | ✅ | Single task (sales only). YN takes any question |
+| **Confidence-Aware Routing** by Nandakishor M ([paper](https://arxiv.org/abs/2510.01237), Sept 2025) | Scores an LLM's confidence *before* it answers, then routes the query: answer directly, retrieve first, escalate to a bigger model, or send to a human. | Paper | Single task (hallucination routing). Close to YN's `sure` handoff ([CLAUDE-AND-CODEX.md](CLAUDE-AND-CODEX.md)) |
+
+Takeaways for YN:
+
+- "Score, don't generate" is established. What's missing in the open is a
+  **general-purpose** model that handles arbitrary questions and answer sets.
+- Jev's RLCD suggests training *for* calibration may beat fixing it afterward with
+  temperature scaling (§3.3). This is worth testing in Phase 3.
+- Reported speed and accuracy numbers from these projects come from their own
+  (often synthetic) data. Treat them as encouraging, not as benchmarks.
+
+## 10. Open questions
 
 - **ModernBERT vs DeBERTa** as the base. Decide by the Phase 1 benchmark.
 - **Maximum label count** before switching to the bi-encoder path.
 - **Multi-choice** (several true labels): v2, or a flag in v1?
 - **Non-English support:** which languages, if any, for v2.
 - **Compute budget** for training runs (one rented GPU vs more).
+- **Calibration method:** temperature scaling only, or train for calibration directly
+  (RLCD-style, see §9)?
