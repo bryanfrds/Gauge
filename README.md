@@ -81,6 +81,15 @@ YN sends back:
 
 Your program uses the answer directly. You don't need to parse any text.
 
+## Works with Claude and Codex (planned)
+
+YN plugs into Claude Code and Codex as a tool through MCP (Model Context Protocol, the
+standard way to give them extra tools). They hand YN the quick yes/no calls, like
+"is this email urgent?" across 400 emails, and only think hard about the ones YN isn't
+sure about. It's faster and uses far less of your limits.
+
+Details: [docs/CLAUDE-AND-CODEX.md](docs/CLAUDE-AND-CODEX.md)
+
 ## Why this exists
 
 Most AI models write sentences, and that's slow and expensive when all you need is a
@@ -109,6 +118,7 @@ same idea, so anyone can run, inspect and improve it.
 |---|---|---|
 | [docs/OVERVIEW.md](docs/OVERVIEW.md) | Everyone | What YN does and doesn't do, in plain English |
 | [docs/SPEC.md](docs/SPEC.md) | Builders | How it works: model, input/output format, training, testing |
+| [docs/CLAUDE-AND-CODEX.md](docs/CLAUDE-AND-CODEX.md) | Everyone | How Claude and Codex use YN as a tool |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Everyone | The build order, phase by phase |
 
 ## License

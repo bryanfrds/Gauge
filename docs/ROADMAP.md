@@ -7,6 +7,14 @@ work.
 
 - README, plain-English overview, technical spec, this roadmap.
 
+## Phase 0.5 — Claude/Codex hookup with a stand-in model
+
+- Build `yn-mcp` and the `yn` CLI on an existing open zero-shot classifier
+  (see [CLAUDE-AND-CODEX.md](CLAUDE-AND-CODEX.md)).
+- Connect it to Claude Code and Codex and try it on a real task.
+- **Done when:** Claude or Codex uses YN for batch yes/no decisions and hands the
+  unsure ones back to itself. This also tells us early whether agents actually use it.
+
 ## Phase 1 — Prove it on one decision
 
 - Pick one real decision (for example, support-ticket routing).
