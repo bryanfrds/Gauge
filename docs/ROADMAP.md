@@ -3,11 +3,15 @@
 Each phase ends with something you can check, so we find out early if the idea doesn't
 work.
 
-## Phase 0 — Docs ✅ (current)
+## Phase 0 — Docs ✅
 
 - README, plain-English overview, technical spec, this roadmap.
 
-## Phase 0.5 — Claude/Codex hookup with a stand-in model
+## Phase 0.5 — Claude/Codex hookup with a stand-in model ✅ (working)
+
+Result: Claude Code used YN correctly on a real task. The stand-in model's accuracy
+and confidence are not reliable enough to trust unattended, which is what Phases 1–3
+fix. Details in [CLAUDE-AND-CODEX.md](CLAUDE-AND-CODEX.md#stand-in-model).
 
 - Build `yn-mcp` and the `yn` CLI on an existing open zero-shot classifier
   (see [CLAUDE-AND-CODEX.md](CLAUDE-AND-CODEX.md)).

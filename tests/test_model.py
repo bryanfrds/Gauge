@@ -1,0 +1,377 @@
+"""Unit tests for yn.model with a fake model (no weights loaded)."""
+
+from __future__ import annotations
+
+import pytest
+
+from yn.model import DEFAULT_TEMPLATE, MAX_OPTIONS, Decider, Decision, _as_statement
+
+CLAIM = "This email is spam."
+
+
+# --- _as_statement ---------------------------------------------------------------
+
+@pytest.mark.parametrize("label", ["billing", "P1", "refund request"])
+def test_as_statement_wraps_bare_label_in_template(label):
+    assert _as_statement(label, DEFAULT_TEMPLATE) == f"This text is about {label}."
+
+
+@pytest.mark.parametrize(
+    "statement",
+    ["The customer wants a refund.", "Ship it now!", "Is this about billing?"],
+)
+def test_as_statement_keeps_full_statement_unchanged(statement):
+    assert _as_statement(statement, DEFAULT_TEMPLATE) == statement
+
+
+def test_as_statement_strips_whitespace_before_checking_punctuation():
+    assert _as_statement("  The order is late.  ", DEFAULT_TEMPLATE) == "The order is late."
+
+
+def test_as_statement_strips_label_before_templating():
+    assert _as_statement("  billing ", DEFAULT_TEMPLATE) == "This text is about billing."
+
+
+def test_as_statement_uses_custom_template():
+    assert _as_statement("cats", "Topic: {}") == "Topic: cats"
+
+
+# --- input validation --------------------------------------------------------------
+
+@pytest.mark.parametrize("bad", ["", "   ", "\n\t"])
+def test_check_rejects_empty_input(decider, bad):
+    with pytest.raises(ValueError, match="input must be a non-empty string"):
+        decider.check(bad, CLAIM)
+
+
+@pytest.mark.parametrize("bad", ["", "   "])
+def test_check_rejects_empty_claim(decider, bad):
+    with pytest.raises(ValueError, match="claim must be a non-empty string"):
+        decider.check("hello", bad)
+
+
+def test_check_many_rejects_non_string_input(decider):
+    with pytest.raises(ValueError, match="input must be a non-empty string"):
+        decider.check_many(["ok", None], CLAIM)
+
+
+def test_check_many_rejects_empty_claim_even_with_no_inputs(decider):
+    with pytest.raises(ValueError, match="claim must be a non-empty string"):
+        decider.check_many([], "")
+
+
+def test_check_many_rejects_if_any_input_is_empty(decider, fake_model):
+    with pytest.raises(ValueError, match="input must be a non-empty string"):
+        decider.check_many(["fine", ""], CLAIM)
+    assert fake_model.calls == []
+
+
+@pytest.mark.parametrize("bad", ["", "  "])
+def test_decide_rejects_empty_input(decider, bad):
+    with pytest.raises(ValueError, match="input must be a non-empty string"):
+        decider.decide(bad, ["a", "b"])
+
+
+@pytest.mark.parametrize("options", [[], ["only"]])
+def test_decide_rejects_fewer_than_two_options(decider, options):
+    with pytest.raises(ValueError, match=f"options must have 2-50 items, got {len(options)}"):
+        decider.decide("text", options)
+
+
+def test_decide_accepts_exactly_two_options(decider):
+    assert decider.decide("text", ["a", "b"]).answer in {"a", "b"}
+
+
+def test_decide_accepts_max_options(decider):
+    options = [f"opt{i}" for i in range(MAX_OPTIONS)]
+    assert len(decider.decide("text", options).scores) == MAX_OPTIONS
+
+
+def test_decide_rejects_more_than_max_options(decider):
+    options = [f"opt{i}" for i in range(MAX_OPTIONS + 1)]
+    with pytest.raises(ValueError, match="options must have 2-50 items, got 51"):
+        decider.decide("text", options)
+
+
+@pytest.mark.parametrize("bad", ["", "   "])
+def test_decide_rejects_empty_option(decider, bad):
+    with pytest.raises(ValueError, match="each option must be a non-empty string"):
+        decider.decide("text", ["a", bad])
+
+
+def test_decide_rejects_exact_duplicate_options(decider):
+    with pytest.raises(ValueError, match="options must be unique"):
+        decider.decide("text", ["billing", "shipping", "billing"])
+
+
+@pytest.mark.parametrize("dup", [" billing", "billing ", "\tbilling\n"])
+def test_decide_rejects_whitespace_duplicate_options(decider, dup):
+    with pytest.raises(ValueError, match="options must be unique"):
+        decider.decide("text", ["billing", dup])
+
+
+def test_decide_options_differing_only_in_case_are_distinct(decider):
+    assert set(decider.decide("text", ["Billing", "billing"]).scores) == {"Billing", "billing"}
+
+
+def test_decide_many_validates_options_even_with_no_inputs(decider):
+    with pytest.raises(ValueError, match="options must have"):
+        decider.decide_many([], ["only"])
+
+
+# --- empty input list --------------------------------------------------------------
+
+def test_check_many_empty_list_returns_empty_without_model_call(decider, fake_model):
+    assert decider.check_many([], CLAIM) == []
+    assert fake_model.calls == []
+
+
+def test_decide_many_empty_list_returns_empty_without_model_call(decider, fake_model):
+    assert decider.decide_many([], ["a", "b"]) == []
+    assert fake_model.calls == []
+
+
+# --- check_many scoring ------------------------------------------------------------
+
+def test_check_true_when_entailment_probability_high(decider, fake_model):
+    fake_model.entail[("win a prize", CLAIM)] = fake_model.check_logit(0.9)
+    d = decider.check("win a prize", CLAIM)
+    assert d.answer == "true"
+    assert d.confidence == 0.9
+    assert d.scores == {"true": 0.9, "false": 0.1}
+
+
+def test_check_false_when_entailment_probability_low(decider, fake_model):
+    fake_model.entail[("meeting at 3", CLAIM)] = fake_model.check_logit(0.2)
+    d = decider.check("meeting at 3", CLAIM)
+    assert d.answer == "false"
+    assert d.confidence == 0.8
+    assert d.scores == {"true": 0.2, "false": 0.8}
+
+
+def test_check_reads_entailment_column_not_column_zero(decider, fake_model):
+    # Fake puts the high logit in column 1 (decider._entail_idx); column 0 stays 0.
+    fake_model.entail[("x", CLAIM)] = 5.0
+    assert decider.check("x", CLAIM).answer == "true"
+
+
+def test_check_softmax_is_over_all_labels(decider, fake_model):
+    # Logit 0 in all 3 columns => P(entailment) = 1/3, not 1/2.
+    d = decider.check("neutral", CLAIM)
+    assert d.scores == {"true": 0.3333, "false": 0.6667}
+    assert d.answer == "false"
+
+
+def test_check_true_and_false_scores_sum_to_one(decider, fake_model):
+    fake_model.entail[("t", CLAIM)] = 1.2345
+    d = decider.check("t", CLAIM)
+    assert d.scores["true"] + d.scores["false"] == pytest.approx(1.0, abs=1e-4)
+
+
+def test_check_scores_rounded_to_four_places(decider, fake_model):
+    fake_model.entail[("t", CLAIM)] = 0.7
+    d = decider.check("t", CLAIM)
+    for v in (*d.scores.values(), d.confidence):
+        assert v == round(v, 4)
+    assert d.confidence == max(d.scores.values())
+
+
+def test_check_sends_claim_verbatim_as_hypothesis(decider, fake_model):
+    decider.check("some text", "It is urgent")  # no trailing period: must NOT be templated
+    assert fake_model.calls == [[("some text", "It is urgent")]]
+
+
+def test_check_many_preserves_input_order(decider, fake_model):
+    texts = ["spam1", "ham", "spam2"]
+    fake_model.entail[("spam1", CLAIM)] = fake_model.check_logit(0.95)
+    fake_model.entail[("ham", CLAIM)] = fake_model.check_logit(0.05)
+    fake_model.entail[("spam2", CLAIM)] = fake_model.check_logit(0.6)
+    results = decider.check_many(texts, CLAIM)
+    assert [r.answer for r in results] == ["true", "false", "true"]
+    assert [r.scores["true"] for r in results] == [0.95, 0.05, 0.6]
+
+
+def test_check_many_single_model_call_for_all_inputs(decider, fake_model):
+    decider.check_many(["a", "b", "c"], CLAIM)
+    assert fake_model.calls == [[("a", CLAIM), ("b", CLAIM), ("c", CLAIM)]]
+
+
+def test_check_result_includes_model_name(decider):
+    assert decider.check("t", CLAIM).model == "fake-model"
+
+
+def test_decision_to_dict_has_all_fields(decider, fake_model):
+    fake_model.entail[("t", CLAIM)] = fake_model.check_logit(0.9)
+    assert decider.check("t", CLAIM).to_dict() == {
+        "answer": "true",
+        "confidence": 0.9,
+        "scores": {"true": 0.9, "false": 0.1},
+        "sure": True,
+        "model": "fake-model",
+    }
+
+
+# --- sure vs threshold ---------------------------------------------------------------
+
+def test_sure_when_confidence_above_threshold(decider, fake_model):
+    decider.threshold = 0.85
+    fake_model.entail[("t", CLAIM)] = fake_model.check_logit(0.9)
+    assert decider.check("t", CLAIM).sure is True
+
+
+def test_not_sure_when_confidence_below_threshold(decider, fake_model):
+    decider.threshold = 0.85
+    fake_model.entail[("t", CLAIM)] = fake_model.check_logit(0.8)
+    assert decider.check("t", CLAIM).sure is False
+
+
+def test_sure_when_confidence_exactly_at_threshold(decider):
+    # Equal logits over 2 options => softmax is exactly 0.5.
+    decider.threshold = 0.5
+    d = decider.decide("t", ["a", "b"])
+    assert d.confidence == 0.5
+    assert d.sure is True
+
+
+def test_not_sure_just_above_exact_confidence(decider):
+    decider.threshold = 0.5000001
+    assert decider.decide("t", ["a", "b"]).sure is False
+
+
+def test_threshold_from_env(monkeypatch, fake_model):
+    monkeypatch.setenv("YN_THRESHOLD", "0.3")
+    assert Decider().threshold == 0.3
+
+
+def test_explicit_threshold_overrides_env(monkeypatch, fake_model):
+    monkeypatch.setenv("YN_THRESHOLD", "0.3")
+    assert Decider(threshold=0.7).threshold == 0.7
+
+
+def test_explicit_zero_threshold_is_not_replaced_by_default(fake_model):
+    assert Decider(threshold=0.0).threshold == 0.0
+
+
+def test_default_threshold(fake_model):
+    assert Decider().threshold == 0.85
+
+
+# --- decide_many scoring -------------------------------------------------------------
+
+def _set_weights(fake_model, text, statement_weights):
+    for statement, w in statement_weights.items():
+        fake_model.entail[(text, statement)] = fake_model.decide_logit(w)
+
+
+def test_decide_picks_highest_option_with_softmax_across_options(decider, fake_model):
+    _set_weights(fake_model, "where is my parcel", {
+        "This text is about billing.": 1,
+        "This text is about shipping.": 6,
+        "This text is about technical.": 3,
+    })
+    d = decider.decide("where is my parcel", ["billing", "shipping", "technical"])
+    assert d.answer == "shipping"
+    assert d.confidence == 0.6
+    assert d.scores == {"billing": 0.1, "shipping": 0.6, "technical": 0.3}
+
+
+def test_decide_scores_sum_to_one(decider, fake_model):
+    _set_weights(fake_model, "t", {"This text is about a.": 2.5, "This text is about b.": 0.7})
+    d = decider.decide("t", ["a", "b", "c", "d"])
+    assert sum(d.scores.values()) == pytest.approx(1.0, abs=1e-3)
+
+
+def test_decide_scores_keyed_by_original_option_strings(decider, fake_model):
+    options = ["  billing ", "The parcel is late."]
+    _set_weights(fake_model, "t", {"This text is about billing.": 1, "The parcel is late.": 3})
+    d = decider.decide("t", options)
+    assert list(d.scores) == options
+    assert d.answer == "The parcel is late."
+    assert d.scores == {"  billing ": 0.25, "The parcel is late.": 0.75}
+
+
+def test_decide_answer_is_original_unstripped_option(decider, fake_model):
+    _set_weights(fake_model, "t", {"This text is about billing.": 9, "This text is about other.": 1})
+    assert decider.decide("t", [" billing ", "other"]).answer == " billing "
+
+
+def test_decide_sends_templated_labels_and_raw_statements_to_model(decider, fake_model):
+    decider.decide("txt", ["billing", "The customer wants a refund."])
+    assert fake_model.calls == [[
+        ("txt", "This text is about billing."),
+        ("txt", "The customer wants a refund."),
+    ]]
+
+
+def test_decide_uses_custom_template(fake_model):
+    d = Decider(model_name="fake", threshold=0.5, template="Category: {}")
+    d.decide("txt", ["a", "b"])
+    assert fake_model.calls == [[("txt", "Category: a"), ("txt", "Category: b")]]
+
+
+def test_decide_many_results_per_input_in_order(decider, fake_model):
+    _set_weights(fake_model, "first", {"This text is about a.": 8, "This text is about b.": 2})
+    _set_weights(fake_model, "second", {"This text is about a.": 1, "This text is about b.": 3})
+    _set_weights(fake_model, "third", {"This text is about a.": 1, "This text is about b.": 1})
+    results = decider.decide_many(["first", "second", "third"], ["a", "b"])
+    assert [r.answer for r in results] == ["a", "b", "a"]
+    assert [r.scores for r in results] == [
+        {"a": 0.8, "b": 0.2},
+        {"a": 0.25, "b": 0.75},
+        {"a": 0.5, "b": 0.5},
+    ]
+
+
+def test_decide_many_softmax_is_per_input_not_across_inputs(decider, fake_model):
+    # A huge logit on one text must not drain probability from the other.
+    _set_weights(fake_model, "loud", {"This text is about a.": 1e6, "This text is about b.": 1})
+    _set_weights(fake_model, "quiet", {"This text is about a.": 1, "This text is about b.": 4})
+    loud, quiet = decider.decide_many(["loud", "quiet"], ["a", "b"])
+    assert quiet.scores == {"a": 0.2, "b": 0.8}
+
+
+def test_decide_result_same_when_options_shuffled(decider, fake_model):
+    _set_weights(fake_model, "t", {
+        "This text is about a.": 5, "This text is about b.": 3, "This text is about c.": 2,
+    })
+    one = decider.decide("t", ["a", "b", "c"])
+    two = decider.decide("t", ["c", "a", "b"])
+    assert one.answer == two.answer == "a"
+    assert one.scores == two.scores
+
+
+def test_decide_rounds_scores_to_four_places(decider, fake_model):
+    d = decider.decide("t", ["a", "b", "c"])  # all equal => 1/3 each
+    assert d.scores == {"a": 0.3333, "b": 0.3333, "c": 0.3333}
+    assert d.confidence == 0.3333
+
+
+def test_decide_tie_picks_first_option(decider):
+    assert decider.decide("t", ["x", "y"]).answer == "x"
+
+
+# --- construction ------------------------------------------------------------------
+
+def test_model_name_from_env(monkeypatch, fake_model):
+    monkeypatch.setenv("YN_MODEL", "some/other-model")
+    assert Decider().model_name == "some/other-model"
+
+
+def test_decision_is_dataclass_roundtrip():
+    d = Decision("true", 0.9, {"true": 0.9, "false": 0.1}, True, "m")
+    assert Decision(**d.to_dict()) == d
+
+
+def test_sure_uses_rounded_confidence(decider):
+    # 0.84996 rounds to 0.85, so it must count as sure at threshold 0.85.
+    decider.threshold = 0.85
+    r = decider._decision({"true": 0.84996, "false": 0.15004})
+    assert r.confidence == 0.85 and r.sure is True
+    r = decider._decision({"true": 0.8496, "false": 0.1504})
+    assert r.confidence == 0.8496 and r.sure is False
+
+
+def test_bad_threshold_env_raises_runtime_error(monkeypatch):
+    monkeypatch.setenv("YN_THRESHOLD", "abc")
+    with pytest.raises(RuntimeError, match="YN_THRESHOLD"):
+        Decider()
