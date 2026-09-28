@@ -291,3 +291,31 @@ def test_unexpected_error_is_exit_3_not_false(fake_model, monkeypatch, capsys):
     monkeypatch.setattr("yn.model.Decider.check_many", boom)
     assert main(["check", CLAIM, "hello", "--exit-code"]) == EXIT_ERROR
     assert "OSError: model files missing" in capsys.readouterr().err
+
+
+def test_broken_pipe_exits_quietly_not_false(check_p, monkeypatch):
+    # `yn ... | head -1`: the reader closes early. Must not exit 1 ("false").
+    import os
+    import sys
+
+    read_fd, write_fd = os.pipe()
+
+    class ClosedPipe:
+        def write(self, s):
+            raise BrokenPipeError
+
+        def flush(self):
+            raise BrokenPipeError
+
+        def fileno(self):
+            return write_fd
+
+    monkeypatch.setattr(sys, "stdout", ClosedPipe())
+    redirected = []
+    monkeypatch.setattr(os, "dup2", lambda fd, fd2: redirected.append(fd2))
+    try:
+        assert main(["check", CLAIM, "x", "--exit-code"]) == EXIT_ERROR
+        assert redirected == [write_fd]
+    finally:
+        os.close(read_fd)
+        os.close(write_fd)

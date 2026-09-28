@@ -19,7 +19,11 @@ MAX_OPTIONS = 50
 MAX_INPUTS = 1000
 MAX_PAIRS = 20_000  # inputs x options; roughly 30 s on an Apple Silicon GPU
 MAX_INPUT_CHARS = 20_000
-MAX_STATEMENT_CHARS = 1_000  # claims and options must fit in the model's 512 tokens
+MAX_STATEMENT_CHARS = 1_000  # cheap first check, before tokenizing
+# Claims and options can't be truncated, and must leave room for the input text in the
+# model's 512 tokens. Non-Latin scripts can use a token per character, so this is
+# checked in tokens as well as characters.
+MAX_STATEMENT_TOKENS = 400
 BATCH_SIZE = 16
 
 
@@ -147,6 +151,7 @@ class Decider:
         self.load()  # outside _infer_lock: load() takes its own lock
         out = []
         with self._infer_lock, torch.inference_mode():
+            self._check_statement_tokens({h for _, h in pairs})
             for i in range(0, len(pairs), BATCH_SIZE):
                 chunk = pairs[i : i + BATCH_SIZE]
                 enc = self._tokenizer(
@@ -159,6 +164,14 @@ class Decider:
                 ).to(self.device)
                 out.append(self._model(**enc).logits.float().cpu())
         return torch.cat(out)
+
+    def _check_statement_tokens(self, statements: set[str]) -> None:
+        """Call with _infer_lock held (the tokenizer is shared)."""
+        for s in statements:
+            n = len(self._tokenizer(s, add_special_tokens=False)["input_ids"])
+            if n > MAX_STATEMENT_TOKENS:
+                raise InputError(f"a claim or option is {n} tokens; the limit is "
+                                 f"{MAX_STATEMENT_TOKENS}. Shorten it.")
 
     def _decision(self, scores: dict[str, float]) -> Decision:
         answer = max(scores, key=scores.get)
