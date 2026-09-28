@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 
 from yn.model import Decider, InputError
@@ -95,11 +96,19 @@ def main(argv: list[str] | None = None) -> int:
         print(f"yn: error: {type(e).__name__}: {e}", file=sys.stderr)
         return EXIT_ERROR
 
-    for r in results:
-        if args.json:
-            print(json.dumps(r.to_dict()))
-        else:
-            print(f"{r.answer}\t{_two_places(r.confidence)}" + ("" if r.sure else "\tunsure"))
+    try:
+        for r in results:
+            if args.json:
+                print(json.dumps(r.to_dict()))
+            else:
+                print(f"{r.answer}\t{_two_places(r.confidence)}" + ("" if r.sure else "\tunsure"))
+        sys.stdout.flush()
+    except BrokenPipeError:
+        # The reader stopped early (e.g. `| head -1`). Exit quietly, and not with 1,
+        # which would read as "false". Point stdout at devnull so Python's own
+        # flush at exit doesn't raise again.
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        return EXIT_ERROR
 
     if not args.exit_code:
         return 0

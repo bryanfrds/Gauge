@@ -78,7 +78,8 @@ or `codex mcp remove yn`.
 - A bad request (for example, 1 option or empty text) returns an error message saying
   what's wrong, so the agent can fix it and retry.
 - **Limits per call:** 1,000 inputs, 20,000 input × option pairs, 20,000 characters
-  per input, and 1,000 characters per claim or option. Larger jobs get a clear error
+  per input, and 1,000 characters (and 400 tokens, the model's word pieces) per claim
+  or option. Larger jobs get a clear error
   asking the agent to split them.
 - Parallel calls are safe. They run one at a time on the model.
 
@@ -109,6 +110,10 @@ carries the answer, which is useful in scripts and hooks:
 Errors always use other codes, with or without `--exit-code`: **64** means a bad request
 (missing input, bad option or flag), and **3** means a setup or model problem. A script
 or hook must treat anything other than 0, 1 or 2 as "no answer", never as "false".
+
+Limits are the same as for the MCP tools: 1,000 inputs (lines with `--lines`), 20,000
+characters per input, and claims or options up to 1,000 characters and 400 tokens. A
+longer document gets exit code 64 rather than being silently cut. Split it first.
 
 Each `yn` run loads the model, which takes about 3–4 seconds. For many decisions,
 use `--lines` or the MCP server, which loads the model once and keeps it in memory.

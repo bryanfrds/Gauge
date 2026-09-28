@@ -72,3 +72,13 @@ async def test_mcp_stdio_round_trip(tmp_path):
                 })
                 assert result.is_error is False
                 assert json.loads(result.content[0].text)["answer"] == "true"
+
+
+def test_long_non_latin_claim_is_clear_input_error(real_decider):
+    from yn.model import MAX_STATEMENT_CHARS, InputError
+    claim = "这封邮件非常紧急需要马上处理" * 70  # under the character limit, over 400 tokens
+    assert len(claim) < MAX_STATEMENT_CHARS
+    with pytest.raises(InputError, match="tokens"):
+        real_decider.check("服务器宕机了", claim)
+    # The model still works afterwards.
+    assert real_decider.check("You won a free iPhone, click here!", "This email is spam.").answer == "true"

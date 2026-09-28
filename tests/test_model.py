@@ -422,7 +422,9 @@ def test_inference_never_overlaps(monkeypatch):
         def to(self, device):
             return self
 
-    def tokenizer(texts, statements, **kw):
+    def tokenizer(texts, statements=None, **kw):
+        if statements is None:  # token count for one statement
+            return {"input_ids": [0] * 5}
         return Batch(n=len(texts))
 
     def model(n):
@@ -446,3 +448,22 @@ def test_inference_never_overlaps(monkeypatch):
     for t in threads:
         t.join()
     assert peak == 1
+
+
+def test_statement_over_token_limit_rejected(monkeypatch):
+    """Short in characters but long in tokens (e.g. Chinese) must be a clear InputError."""
+    from yn.model import MAX_STATEMENT_TOKENS, InputError
+
+    calls = []
+
+    def tokenizer(text, statements=None, **kw):
+        assert statements is None, "model must not run for an over-long claim"
+        calls.append(text)
+        return {"input_ids": [0] * (MAX_STATEMENT_TOKENS + 1)}
+
+    d = Decider(model_name="fake-model", device="cpu")
+    d._tokenizer, d._model = tokenizer, None
+    monkeypatch.setattr(Decider, "load", lambda self: None)
+    with pytest.raises(InputError, match="tokens; the limit is"):
+        d.check("hello", "这是一个很长的说法。")
+    assert calls == ["这是一个很长的说法。"]
