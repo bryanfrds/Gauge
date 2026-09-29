@@ -13,7 +13,7 @@ PyTorch entirely at runtime.
 ## Using it
 
 ```
-pip install 'yn[onnx]' 'yn[export]'   # export needs torch too; running does not
+pip install 'yn[onnx,export]'   # export needs torch too; running does not
 yn export-onnx
 ```
 
@@ -43,7 +43,17 @@ Measured separately, the import cost alone is 329 MB for `torch` + `transformers
 against 46 MB for `onnxruntime` + `tokenizers`. Most of the saving is not loading
 PyTorch at all; the rest of the resident total is the weights, which both backends pay.
 
-Scores agree to four decimal places — the precision `Decision.confidence` exposes.
+## Agreement with PyTorch
+
+Measured over short and long inputs, through both `check` and `decide`, the largest
+difference in `confidence` was **0.0013**; treat 0.002 as the bound.
+
+The two backends are not bit-identical — the graph is optimized differently and
+operations are fused differently — so this is float drift, not a bug. It is far below
+what the model's own calibration means, and the chosen answer never changed in testing.
+The one place it can show is `sure`: a confidence within 0.002 of `YN_THRESHOLD` may
+fall either side of it. If an exact match matters more than the memory, use
+`YN_BACKEND=torch`.
 
 On Apple Silicon, PyTorch uses the GPU (`mps`) and wins on raw inference. The ONNX path
 is CPU-only and is aimed at servers, where PyTorch has no GPU to fall back on either.
@@ -59,6 +69,6 @@ measuring both memory and accuracy.
 
 **A single self-contained `.onnx` file.** Exporting with `dynamo=False` produces one
 file with the weights embedded, which is tidier to ship. It costs 990 MB peak instead of
-553 MB, because ONNX Runtime can memory-map a sidecar weights file but must read
+608 MB, because ONNX Runtime can memory-map a sidecar weights file but must read
 embedded initializers into memory. The export therefore writes `model.onnx` plus
 `model.onnx.data`, and both must travel together.

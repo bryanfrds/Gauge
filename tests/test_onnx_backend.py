@@ -26,16 +26,27 @@ from yn.onnx_backend import (
 MODEL = "MoritzLaurer/deberta-v3-base-zeroshot-v2.0"
 
 
-def write_export(d: Path, entail_idx: int = 1, num_labels: int = 3) -> Path:
-    """Minimal set of files that make `is_exported` true (contents are never parsed
-    by the tests that only check existence)."""
+def write_export(d: Path, entail_idx: int = 1, num_labels: int = 3,
+                 model: str = "fake-model", format_version: int | None = None,
+                 meta: dict | None = None) -> Path:
+    """Every file a real export has, so `is_exported` is true. Contents are only
+    parsed for meta.json; the graph and tokenizer are placeholders."""
     d.mkdir(parents=True, exist_ok=True)
     (d / MODEL_FILE).write_bytes(b"not-a-real-onnx-graph")
+    (d / onnx_backend.WEIGHTS_FILE).write_bytes(b"not-real-weights")
     (d / TOKENIZER_FILE).write_text("{}")
-    (d / onnx_backend.META_FILE).write_text(
-        json.dumps({"model": "fake-model", "entail_idx": entail_idx,
-                    "num_labels": num_labels, "opset": onnx_backend.OPSET})
-    )
+    payload = {
+        "format_version": onnx_backend.FORMAT_VERSION
+        if format_version is None else format_version,
+        "model": model,
+        "entail_idx": entail_idx,
+        "num_labels": num_labels,
+        "opset": onnx_backend.OPSET,
+        "pad_id": 0,
+        "pad_token": "[PAD]",
+    }
+    payload.update(meta or {})
+    (d / onnx_backend.META_FILE).write_text(json.dumps(payload))
     return d
 
 
@@ -157,9 +168,9 @@ def test_is_exported_false_without_model_file(monkeypatch, tmp_path):
 def test_is_exported_false_when_model_path_is_a_directory(monkeypatch, tmp_path):
     """A stray directory named model.onnx is not an export."""
     monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
-    d = tmp_path / _slug("fake-model")
-    (d / MODEL_FILE).mkdir(parents=True)
-    (d / TOKENIZER_FILE).write_text("{}")
+    d = write_export(tmp_path / _slug("fake-model"))
+    (d / MODEL_FILE).unlink()
+    (d / MODEL_FILE).mkdir()
     assert is_exported("fake-model") is False
 
 
@@ -349,3 +360,62 @@ def test_check_statements_counts_each_statement_once(onnx_decider):
     d.check_statements(["a", "b", "a"])
     assert sorted(runner.counted) == ["a", "b"]
     assert runner.batches == []
+
+
+# --- a partial or stale export must not be trusted ---------------------------------
+# `auto` promises a silent fallback to torch. Anything it wrongly calls an export
+# fails on every later call instead, so each missing or wrong piece is pinned here.
+
+def test_is_exported_false_without_weights_sidecar(monkeypatch, tmp_path):
+    """model.onnx is a stub; ONNX Runtime opens model.onnx.data for the weights."""
+    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    d = write_export(tmp_path / _slug("fake-model"))
+    (d / onnx_backend.WEIGHTS_FILE).unlink()
+    assert is_exported("fake-model") is False
+
+
+def test_is_exported_false_without_meta(monkeypatch, tmp_path):
+    """OnnxRunner reads meta.json, so an export without it is not usable."""
+    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    d = write_export(tmp_path / _slug("fake-model"))
+    (d / onnx_backend.META_FILE).unlink()
+    assert is_exported("fake-model") is False
+
+
+def test_is_exported_false_when_meta_is_unreadable(monkeypatch, tmp_path):
+    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    d = write_export(tmp_path / _slug("fake-model"))
+    (d / onnx_backend.META_FILE).write_text("{not json")
+    assert is_exported("fake-model") is False
+
+
+def test_is_exported_false_on_older_format(monkeypatch, tmp_path):
+    """An export from older code may not match today's graph or tokenizer settings."""
+    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    write_export(tmp_path / _slug("fake-model"),
+                 format_version=onnx_backend.FORMAT_VERSION - 1)
+    assert is_exported("fake-model") is False
+
+
+def test_is_exported_false_when_meta_names_another_model(monkeypatch, tmp_path):
+    """_slug is lossy: "org/model" and "org_model" share a directory."""
+    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    assert _slug("org/model") == _slug("org_model")  # the collision this guards
+    write_export(tmp_path / _slug("org/model"), model="org/model")
+    assert is_exported("org/model") is True
+    assert is_exported("org_model") is False
+
+
+def test_runner_rejects_an_export_for_another_model(monkeypatch, tmp_path):
+    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    write_export(tmp_path / _slug("org_model"), model="org/model")
+    with pytest.raises(RuntimeError, match="yn export-onnx"):
+        OnnxRunner("org_model")
+
+
+def test_runner_rejects_an_older_format(monkeypatch, tmp_path):
+    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    write_export(tmp_path / _slug("fake-model"),
+                 format_version=onnx_backend.FORMAT_VERSION - 1)
+    with pytest.raises(RuntimeError, match="yn export-onnx"):
+        OnnxRunner("fake-model")

@@ -138,8 +138,10 @@ class Decider:
         self._tokenizer = None
         self._entail_idx = 0
         self._lock = threading.Lock()  # guards loading
-        # Guards inference. MCP runs tool calls in parallel worker threads, and
-        # concurrent use of one model on the Apple GPU aborts the whole process.
+        # Guards inference. MCP runs tool calls in parallel worker threads. On torch,
+        # concurrent use of one model on the Apple GPU aborts the whole process; on
+        # ONNX the session itself is thread-safe but the tokenizer is shared mutable
+        # state, so both backends need this held.
         self._infer_lock = threading.Lock()
 
     def _use_onnx(self) -> bool:

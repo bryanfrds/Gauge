@@ -95,13 +95,23 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _export_onnx(args) -> int:
-    from yn.onnx_backend import export
+    from yn.onnx_backend import export, export_dir
 
     model = args.model or os.environ.get("YN_MODEL") or DEFAULT_MODEL
     out = export(model, args.out)
     print(f"exported {model} to {out}", file=sys.stderr)
-    print("the onnx backend is used automatically from now on; "
-          "set YN_BACKEND=torch to opt out.", file=sys.stderr)
+    # Only claim automatic pickup when this really is the directory YN will look in
+    # for the model it will actually run. --out or --model can make it neither.
+    runs_this_model = model == (os.environ.get("YN_MODEL") or DEFAULT_MODEL)
+    if runs_this_model and out == export_dir(model):
+        print("the onnx backend is used automatically from now on; "
+              "set YN_BACKEND=torch to opt out.", file=sys.stderr)
+    elif runs_this_model:
+        print(f"to use it, set YN_ONNX_DIR={out.parent}", file=sys.stderr)
+    else:
+        print(f"to use it, set YN_MODEL={model}"
+              + ("" if out == export_dir(model) else f" and YN_ONNX_DIR={out.parent}"),
+              file=sys.stderr)
     return 0
 
 

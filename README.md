@@ -104,7 +104,7 @@ Export the model once and it runs on ONNX Runtime instead — a small program th
 knows how to run models:
 
 ```
-pip install 'yn[onnx]' 'yn[export]'
+pip install 'yn[onnx,export]'
 yn export-onnx
 ```
 
@@ -115,10 +115,14 @@ That's it. YN picks up the export automatically from then on. On a plain CPU:
 | PyTorch | 709 MB | 4.0 s | 0.99 s |
 | ONNX Runtime | 608 MB | 0.6 s | 0.27 s |
 
-Same answers — scores match to four decimal places, which is the precision you see.
+Same answers. Scores agree within 0.002 — close enough that the verdict doesn't move,
+though a confidence sitting within 0.002 of your threshold could land either side of
+`sure`.
 
-This matters most on a small server: a deployment that only runs YN doesn't need
-PyTorch installed at all, which takes a couple of gigabytes off the container image.
+The backend already imports PyTorch lazily, so nothing loads it once an export
+exists. Dropping it from the install — and the couple of gigabytes it adds to a
+container image — needs it moved out of the core dependencies, which hasn't happened
+yet.
 
 Set `YN_BACKEND=torch` to force the old path, or `YN_ONNX_DIR` to keep the export
 somewhere specific (useful for a read-only container volume).

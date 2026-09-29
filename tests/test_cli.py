@@ -389,7 +389,48 @@ def test_export_onnx_prints_nothing_on_stdout(fake_export, capsys):
     main(["export-onnx"])
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert "YN_BACKEND=torch" in captured.err
+    assert "exported" in captured.err
+
+
+def test_export_onnx_promises_auto_pickup_only_for_the_default_location(
+    monkeypatch, tmp_path, capsys
+):
+    """The export really is where YN will look, so the auto-pickup line is true."""
+    from yn import onnx_backend
+
+    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    monkeypatch.setattr(onnx_backend, "export",
+                        lambda model, out_dir=None: onnx_backend.export_dir(model))
+    main(["export-onnx"])
+    assert "YN_BACKEND=torch" in capsys.readouterr().err
+
+
+def test_export_onnx_tells_you_how_to_use_an_out_directory(
+    monkeypatch, tmp_path, capsys
+):
+    """--out puts it somewhere YN won't look, so it must not claim auto-pickup."""
+    from yn import onnx_backend
+
+    monkeypatch.setattr(onnx_backend, "export",
+                        lambda model, out_dir=None: tmp_path / "elsewhere" / "m")
+    main(["export-onnx", "--out", str(tmp_path / "elsewhere" / "m")])
+    err = capsys.readouterr().err
+    assert "YN_ONNX_DIR=" in err
+    assert "used automatically" not in err
+
+
+def test_export_onnx_tells_you_to_set_yn_model_for_another_model(
+    monkeypatch, tmp_path, capsys
+):
+    from yn import onnx_backend
+
+    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    monkeypatch.setattr(onnx_backend, "export",
+                        lambda model, out_dir=None: onnx_backend.export_dir(model))
+    main(["export-onnx", "--model", "other/thing"])
+    err = capsys.readouterr().err
+    assert "YN_MODEL=other/thing" in err
+    assert "used automatically" not in err
 
 
 def test_export_onnx_does_not_read_stdin(fake_export, monkeypatch):
