@@ -467,3 +467,117 @@ def test_statement_over_token_limit_rejected(monkeypatch):
     with pytest.raises(InputError, match="tokens; the limit is"):
         d.check("hello", "这是一个很长的说法。")
     assert calls == ["这是一个很长的说法。"]
+
+
+# --- backend selection -------------------------------------------------------------
+
+def test_default_backend_is_auto(fake_model):
+    from yn.model import DEFAULT_BACKEND
+    assert Decider().backend == DEFAULT_BACKEND == "auto"
+
+
+@pytest.mark.parametrize("value", ["auto", "torch", "onnx"])
+def test_backend_from_env(monkeypatch, fake_model, value):
+    monkeypatch.setenv("YN_BACKEND", value)
+    assert Decider().backend == value
+
+
+def test_explicit_backend_overrides_env(monkeypatch, fake_model):
+    monkeypatch.setenv("YN_BACKEND", "onnx")
+    assert Decider(backend="torch").backend == "torch"
+
+
+@pytest.mark.parametrize("bad", ["ONNX", "tensorflow", " torch", "torch "])
+def test_bad_backend_raises_runtime_error_at_construction(bad):
+    with pytest.raises(RuntimeError, match="YN_BACKEND must be auto, torch or onnx"):
+        Decider(backend=bad)
+
+
+def test_empty_backend_falls_back_to_the_default(fake_model):
+    assert Decider(backend="").backend == "auto"
+
+
+def test_bad_backend_env_raises_runtime_error(monkeypatch):
+    monkeypatch.setenv("YN_BACKEND", "tensorflow")
+    with pytest.raises(RuntimeError, match="YN_BACKEND"):
+        Decider()
+
+
+def test_backend_torch_never_looks_for_an_export(monkeypatch):
+    from yn import onnx_backend
+    monkeypatch.setattr(onnx_backend, "is_exported",
+                        lambda name: pytest.fail("torch backend must not check for an export"))
+    assert Decider(backend="torch")._use_onnx() is False
+
+
+def test_backend_onnx_is_used_even_with_no_export(monkeypatch):
+    from yn import onnx_backend
+    monkeypatch.setattr(onnx_backend, "is_exported", lambda name: False)
+    assert Decider(backend="onnx")._use_onnx() is True
+
+
+@pytest.mark.parametrize("exported", [True, False])
+def test_backend_auto_follows_is_exported(monkeypatch, exported):
+    from yn import onnx_backend
+    seen = []
+
+    def is_exported(name):
+        seen.append(name)
+        return exported
+
+    monkeypatch.setattr(onnx_backend, "is_exported", is_exported)
+    assert Decider(model_name="fake-model", backend="auto")._use_onnx() is exported
+    assert seen == ["fake-model"]
+
+
+# --- logits shape ------------------------------------------------------------------
+
+def test_torch_logits_returns_numpy(monkeypatch):
+    """Both backends must hand `_logits` callers a numpy array, not a tensor."""
+    from types import SimpleNamespace
+
+    import numpy as np
+    import torch
+
+    class Batch(dict):
+        def to(self, device):
+            return self
+
+    def tokenizer(texts, statements=None, **kw):
+        if statements is None:
+            return {"input_ids": [0] * 5}
+        return Batch(n=len(texts))
+
+    def model(n):
+        return SimpleNamespace(logits=torch.zeros(n, 3, dtype=torch.float64))
+
+    d = Decider(model_name="fake-model", device="cpu", backend="torch")
+    d._tokenizer, d._model = tokenizer, model
+    monkeypatch.setattr(Decider, "load", lambda self: None)
+
+    out = d._logits([("a", "This is spam."), ("b", "This is spam.")])
+    assert isinstance(out, np.ndarray)
+    assert out.dtype == np.float32
+    assert out.shape == (2, 3)
+
+
+def test_decide_many_reshapes_to_texts_by_options(decider, fake_model):
+    texts, options = ["t1", "t2", "t3"], ["a", "b", "c", "d"]
+    results = decider.decide_many(texts, options)
+    assert len(results) == len(texts)
+    assert [sorted(r.scores) for r in results] == [sorted(options)] * len(texts)
+    # One model call, pairs in text-major order, so the reshape lines up.
+    assert fake_model.calls == [[(t, _as_statement(o, DEFAULT_TEMPLATE))
+                                for t in texts for o in options]]
+
+
+def test_decide_many_reshape_maps_each_row_to_its_own_text(decider, fake_model):
+    """A transposed reshape would still give the right shape, so check the values."""
+    for text, winner in (("t1", "b"), ("t2", "c"), ("t3", "a")):
+        for option in ("a", "b", "c"):
+            statement = _as_statement(option, DEFAULT_TEMPLATE)
+            weight = 8.0 if option == winner else 1.0
+            fake_model.entail[(text, statement)] = fake_model.decide_logit(weight)
+    results = decider.decide_many(["t1", "t2", "t3"], ["a", "b", "c"])
+    assert [r.answer for r in results] == ["b", "c", "a"]
+    assert [r.confidence for r in results] == [0.8] * 3

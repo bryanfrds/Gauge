@@ -21,7 +21,7 @@ import math
 import os
 import sys
 
-from yn.model import Decider, InputError
+from yn.model import DEFAULT_MODEL, Decider, InputError
 from yn.route import read_routes_file, route_many
 
 EXIT_FALSE, EXIT_UNSURE, EXIT_ERROR, EXIT_USAGE = 1, 2, 3, 64
@@ -85,11 +85,38 @@ def _parser() -> argparse.ArgumentParser:
                    help='JSON list of {"model": ..., "when": ...} (default: YN_ROUTES or '
                         "built-in Claude models)")
     r.add_argument("text", nargs="?", help="task description (default: stdin)")
+
+    e = sub.add_parser("export-onnx",
+                       help="export the model for the faster, lighter ONNX backend")
+    e.add_argument("--model", help="model to export (default: YN_MODEL, else the built-in)")
+    e.add_argument("--out", metavar="DIR",
+                   help="where to write it (default: YN_ONNX_DIR, else the yn cache)")
     return p
+
+
+def _export_onnx(args) -> int:
+    from yn.onnx_backend import export
+
+    model = args.model or os.environ.get("YN_MODEL") or DEFAULT_MODEL
+    out = export(model, args.out)
+    print(f"exported {model} to {out}", file=sys.stderr)
+    print("the onnx backend is used automatically from now on; "
+          "set YN_BACKEND=torch to opt out.", file=sys.stderr)
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.cmd == "export-onnx":
+        try:
+            return _export_onnx(args)
+        except ImportError as e:
+            print(f"yn: export needs the export extra: pip install 'yn[export]' ({e})",
+                  file=sys.stderr)
+            return EXIT_ERROR
+        except Exception as e:  # bad model name, no entailment label, disk full
+            print(f"yn: error: {type(e).__name__}: {e}", file=sys.stderr)
+            return EXIT_ERROR
     try:
         inputs = _read_inputs(args.text, args.lines)
         decider = Decider(threshold=args.threshold)

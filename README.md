@@ -95,6 +95,34 @@ jobs go to cheap, fast models and hard ones go to the strongest.
 
 Details: [docs/CLAUDE-AND-CODEX.md](docs/CLAUDE-AND-CODEX.md)
 
+## Running it lighter and faster
+
+By default YN runs on PyTorch, which is a machine-learning *training* framework. YN
+only ever runs a trained model, so all that extra machinery is dead weight.
+
+Export the model once and it runs on ONNX Runtime instead — a small program that only
+knows how to run models:
+
+```
+pip install 'yn[onnx]' 'yn[export]'
+yn export-onnx
+```
+
+That's it. YN picks up the export automatically from then on. On a plain CPU:
+
+| | Memory | Startup | Four inputs |
+|---|---|---|---|
+| PyTorch | 709 MB | 4.0 s | 0.99 s |
+| ONNX Runtime | 608 MB | 0.6 s | 0.27 s |
+
+Same answers — scores match to four decimal places, which is the precision you see.
+
+This matters most on a small server: a deployment that only runs YN doesn't need
+PyTorch installed at all, which takes a couple of gigabytes off the container image.
+
+Set `YN_BACKEND=torch` to force the old path, or `YN_ONNX_DIR` to keep the export
+somewhere specific (useful for a read-only container volume).
+
 ## Why this exists
 
 Most AI models write sentences, and that's slow and expensive when all you need is a
@@ -128,6 +156,7 @@ to be the open **general-purpose** one. See [Related work](docs/SPEC.md#9-relate
 | [docs/SPEC.md](docs/SPEC.md) | Builders | How it works: model, input/output format, training, testing |
 | [docs/CLAUDE-AND-CODEX.md](docs/CLAUDE-AND-CODEX.md) | Everyone | How Claude and Codex use YN as a tool |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Everyone | The build order, phase by phase |
+| [docs/ONNX.md](docs/ONNX.md) | Builders | Running without PyTorch: setup, measurements, what was rejected |
 
 ## License
 

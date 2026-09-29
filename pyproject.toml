@@ -15,11 +15,17 @@ dependencies = [
     "sentencepiece",
     "protobuf",
     "mcp>=2.2,<3",
+    "numpy",
     "typing_extensions",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest"]
+# Running an exported model. Lighter and faster on CPU than torch; see
+# yn/onnx_backend.py for the measurements.
+onnx = ["onnxruntime>=1.17", "tokenizers>=0.15"]
+# Producing the export. Needs torch as well, so it is not a deployment dependency.
+export = ["onnx>=1.16", "onnxscript>=0.1"]
 
 [project.scripts]
 yn = "yn.cli:main"

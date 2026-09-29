@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
 import pytest
-import torch
 
 from yn.model import Decider
 
@@ -29,7 +29,7 @@ class FakeModel:
 
     def logits(self, decider: Decider, pairs):
         self.calls.append(list(pairs))
-        out = torch.zeros(len(pairs), NUM_LABELS)
+        out = np.zeros((len(pairs), NUM_LABELS), dtype=np.float32)
         for i, pair in enumerate(pairs):
             out[i, decider._entail_idx] = self.entail.get(pair, 0.0)
         return out
@@ -48,7 +48,8 @@ class FakeModel:
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch):
-    for var in ("YN_MODEL", "YN_THRESHOLD", "YN_DEVICE", "YN_VERBOSE", "YN_ROUTES"):
+    for var in ("YN_MODEL", "YN_THRESHOLD", "YN_DEVICE", "YN_VERBOSE", "YN_ROUTES",
+                "YN_BACKEND", "YN_ONNX_DIR", "YN_ONNX_THREADS"):
         monkeypatch.delenv(var, raising=False)
 
 
