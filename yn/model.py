@@ -154,18 +154,39 @@ class Decider:
             return True
         return is_exported(self.model_name)
 
+    def _load_onnx_runner(self):
+        """Build the ONNX runner, or None when "auto" should fall back to torch.
+
+        An export can be complete and current and still not load: onnxruntime may not
+        be installed (`pip install yn[export]` alone does exactly that), or the graph
+        may be corrupt. "auto" promises a silent fallback, so only "onnx" raises.
+        """
+        try:
+            from yn.onnx_backend import OnnxRunner
+
+            return OnnxRunner(self.model_name)
+        except Exception as e:
+            if self.backend == "onnx":
+                raise
+            if os.environ.get("YN_VERBOSE"):
+                import sys
+
+                print(f"yn: ONNX backend unavailable ({type(e).__name__}: {e}); "
+                      f"using torch", file=sys.stderr)
+            return None
+
     def load(self) -> None:
         with self._lock:
             if self._model is not None or self._runner is not None:
                 return
             if self._use_onnx():
-                from yn.onnx_backend import OnnxRunner
-
-                runner = OnnxRunner(self.model_name)
-                self._entail_idx = runner.entail_idx
-                self.device = "cpu"  # ONNX Runtime here is CPU-only
-                self._runner = runner
-                return
+                runner = self._load_onnx_runner()
+                if runner is not None:
+                    self._entail_idx = runner.entail_idx
+                    self.device = "cpu"  # ONNX Runtime here is CPU-only
+                    self._runner = runner
+                    return
+                # backend="auto" and the runner wouldn't build: fall through to torch.
             if not os.environ.get("YN_VERBOSE"):
                 _quiet_libraries()
             import torch

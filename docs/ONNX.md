@@ -55,6 +55,24 @@ The one place it can show is `sure`: a confidence within 0.002 of `YN_THRESHOLD`
 fall either side of it. If an exact match matters more than the memory, use
 `YN_BACKEND=torch`.
 
+That bound isn't just prose — `tests/test_backend_agreement.py` enforces it against
+the real model. It is skipped by default because it needs both backends and an export
+on disk:
+
+```
+YN_SLOW_TESTS=1 python -m pytest tests/test_backend_agreement.py
+```
+
+If it fails, the backends have diverged or the number here is wrong. Don't just raise
+the constant.
+
+## If ONNX can't load
+
+`auto` falls back to PyTorch and says nothing — set `YN_VERBOSE=1` to see why. This
+matters because `pip install 'yn[export]'` alone gives you enough to *produce* an
+export but not to *run* one, and a complete export with no runtime would otherwise
+fail every call. `YN_BACKEND=onnx` raises instead of falling back.
+
 On Apple Silicon, PyTorch uses the GPU (`mps`) and wins on raw inference. The ONNX path
 is CPU-only and is aimed at servers, where PyTorch has no GPU to fall back on either.
 

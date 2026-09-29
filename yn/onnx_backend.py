@@ -64,6 +64,47 @@ def export_dir(model_name: str) -> Path:
     return Path(cache).expanduser() / "yn" / "onnx" / _slug(model_name)
 
 
+def _replace_export(tmp: Path, final: Path) -> None:
+    """Move `tmp` onto `final`, refusing to delete anything YN did not write.
+
+    `final` can be any path the user passed to --out, so a blind rmtree here would
+    wipe a directory of theirs. Only an existing export (or an empty directory) is
+    replaced; anything else is refused.
+    """
+    import shutil
+
+    if final.exists():
+        if not final.is_dir():
+            raise RuntimeError(f"{final} exists and is not a directory")
+        if any(final.iterdir()) and not (final / META_FILE).is_file():
+            raise RuntimeError(
+                f"{final} is not empty and is not a yn export (no {META_FILE}). "
+                f"Refusing to replace it; pick an empty directory or remove it yourself."
+            )
+        # Move the old export aside rather than deleting first, so a crash mid-swap
+        # leaves the previous export in place instead of nothing at all.
+        old = final.with_name(final.name + ".old")
+        shutil.rmtree(old, ignore_errors=True)
+        os.replace(final, old)
+        try:
+            os.replace(tmp, final)
+        except OSError:
+            os.replace(old, final)  # put it back
+            raise
+        shutil.rmtree(old, ignore_errors=True)
+    else:
+        os.replace(tmp, final)
+
+
+def _sweep_stale_temp_dirs(parent: Path) -> None:
+    """Remove .export-* left by a killed export; each is most of a gigabyte."""
+    import shutil
+
+    for d in parent.glob(".export-*"):
+        if d.is_dir():
+            shutil.rmtree(d, ignore_errors=True)
+
+
 def read_meta(directory: Path) -> dict | None:
     """The export's metadata, or None if it is missing or unreadable."""
     try:
@@ -107,6 +148,7 @@ def export(model_name: str, out_dir: Path | None = None) -> Path:
 
     final = Path(out_dir) if out_dir else export_dir(model_name)
     final.parent.mkdir(parents=True, exist_ok=True)
+    _sweep_stale_temp_dirs(final.parent)
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForSequenceClassification.from_pretrained(model_name).eval()
@@ -161,9 +203,7 @@ def export(model_name: str, out_dir: Path | None = None) -> Path:
                 "pad_token": tokenizer.pad_token,
             }, indent=2) + "\n"
         )
-        if final.exists():
-            shutil.rmtree(final)
-        os.replace(tmp, final)
+        _replace_export(tmp, final)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     return final
@@ -211,9 +251,12 @@ class OnnxRunner:
         else:
             self.tokenizer.enable_padding(pad_id=int(pad_id),
                                           pad_token=meta.get("pad_token") or "[PAD]")
-        # A second, untruncated tokenizer: count_tokens must report the real size,
-        # so the "your claim is N tokens" error names N and not the 512 cap.
+        # A second tokenizer for counting only. tokenizer.json carries the truncation
+        # settings baked in at export time, so a fresh copy truncates too and must be
+        # told not to - otherwise every over-limit claim is reported as exactly 512.
         self._counter = Tokenizer.from_file(str(self.dir / TOKENIZER_FILE))
+        self._counter.no_truncation()
+        self._counter.no_padding()
 
         opts = ort.SessionOptions()
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL

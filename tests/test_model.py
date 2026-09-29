@@ -581,3 +581,43 @@ def test_decide_many_reshape_maps_each_row_to_its_own_text(decider, fake_model):
     results = decider.decide_many(["t1", "t2", "t3"], ["a", "b", "c"])
     assert [r.answer for r in results] == ["b", "c", "a"]
     assert [r.confidence for r in results] == [0.8] * 3
+
+
+# --- "auto" must fall back, not fail -----------------------------------------------
+# `pip install 'yn[export]'` then `yn export-onnx` leaves a complete export with no
+# onnxruntime to run it. Without a fallback that combination bricks every call.
+
+def test_auto_falls_back_to_torch_when_the_runner_will_not_build(monkeypatch):
+    import yn.onnx_backend as onnx_backend
+
+    def explode(_model):
+        raise ImportError("No module named 'onnxruntime'")
+
+    monkeypatch.setattr(onnx_backend, "OnnxRunner", explode)
+    d = Decider(model_name="fake-model", backend="auto")
+    assert d._load_onnx_runner() is None
+
+
+def test_explicit_onnx_backend_raises_instead_of_falling_back(monkeypatch):
+    import yn.onnx_backend as onnx_backend
+
+    def explode(_model):
+        raise ImportError("No module named 'onnxruntime'")
+
+    monkeypatch.setattr(onnx_backend, "OnnxRunner", explode)
+    d = Decider(model_name="fake-model", backend="onnx")
+    with pytest.raises(ImportError):
+        d._load_onnx_runner()
+
+
+def test_auto_fallback_is_silent_unless_verbose(monkeypatch, capsys):
+    import yn.onnx_backend as onnx_backend
+
+    monkeypatch.setattr(onnx_backend, "OnnxRunner",
+                        lambda _m: (_ for _ in ()).throw(ImportError("nope")))
+    Decider(model_name="fake-model", backend="auto")._load_onnx_runner()
+    assert capsys.readouterr().err == ""
+
+    monkeypatch.setenv("YN_VERBOSE", "1")
+    Decider(model_name="fake-model", backend="auto")._load_onnx_runner()
+    assert "ONNX backend unavailable" in capsys.readouterr().err

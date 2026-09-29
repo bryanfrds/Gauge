@@ -419,3 +419,104 @@ def test_runner_rejects_an_older_format(monkeypatch, tmp_path):
                  format_version=onnx_backend.FORMAT_VERSION - 1)
     with pytest.raises(RuntimeError, match="yn export-onnx"):
         OnnxRunner("fake-model")
+
+
+# --- tokenizer settings ------------------------------------------------------------
+# These pin the two properties that fail silently: a wrong truncation strategy scores
+# a clipped claim as if it were whole, and a truncated counter misreports the size in
+# the error a user has to act on.
+
+def _tiny_tokenizer(path: Path, max_length: int = 512) -> None:
+    """A real tokenizers.Tokenizer saved the way export() saves one: with the
+    truncation settings already baked in."""
+    from tokenizers import Tokenizer, models, pre_tokenizers
+
+    vocab = {"[PAD]": 0, "[UNK]": 1, "word": 2, "claim": 3}
+    tok = Tokenizer(models.WordLevel(vocab=vocab, unk_token="[UNK]"))
+    tok.pre_tokenizer = pre_tokenizers.Whitespace()
+    tok.enable_truncation(max_length, strategy="only_first")
+    tok.enable_padding()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tok.save(str(path))
+
+
+@pytest.fixture
+def stub_runner(monkeypatch, tmp_path):
+    """An OnnxRunner over a real tokenizer with the ONNX session stubbed out."""
+    import onnxruntime as ort
+
+    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    d = write_export(tmp_path / _slug("fake-model"))
+    _tiny_tokenizer(d / TOKENIZER_FILE)
+    monkeypatch.setattr(ort, "InferenceSession", lambda *a, **kw: object())
+    return OnnxRunner("fake-model")
+
+
+def test_runner_truncates_only_the_input_never_the_claim(stub_runner):
+    """longest_first, the library default, would clip the claim into a different
+    question and score that instead. This is the bug with no visible symptom."""
+    assert stub_runner.tokenizer.truncation["strategy"] == "only_first"
+    assert stub_runner.tokenizer.truncation["max_length"] == 512
+
+
+def test_count_tokens_reports_the_real_size_not_the_cap(stub_runner):
+    """tokenizer.json carries truncation, so a naive counter returns exactly 512
+    for anything longer and the over-limit error names the wrong number."""
+    long_statement = "word " * 600
+    assert stub_runner.count_tokens(long_statement) == 600
+
+
+# --- export() must not delete anything it did not write ----------------------------
+
+def test_replace_export_refuses_a_directory_that_is_not_an_export(tmp_path):
+    """--out takes any path, so this guards a user's own directory."""
+    from yn.onnx_backend import _replace_export
+
+    victim = tmp_path / "my-models"
+    victim.mkdir()
+    (victim / "important.bin").write_text("do not delete")
+    tmp = tmp_path / "staged"
+    tmp.mkdir()
+
+    with pytest.raises(RuntimeError, match="not a yn export"):
+        _replace_export(tmp, victim)
+    assert (victim / "important.bin").read_text() == "do not delete"
+
+
+def test_replace_export_replaces_a_previous_export(tmp_path):
+    from yn.onnx_backend import _replace_export
+
+    final = write_export(tmp_path / "export")
+    (final / "stale-marker").write_text("old")
+    tmp = tmp_path / "staged"
+    write_export(tmp)
+
+    _replace_export(tmp, final)
+    assert (final / onnx_backend.META_FILE).is_file()
+    assert not (final / "stale-marker").exists()
+
+
+def test_replace_export_accepts_an_empty_directory(tmp_path):
+    from yn.onnx_backend import _replace_export
+
+    final = tmp_path / "empty"
+    final.mkdir()
+    tmp = tmp_path / "staged"
+    write_export(tmp)
+    _replace_export(tmp, final)
+    assert (final / onnx_backend.META_FILE).is_file()
+
+
+def test_sweep_removes_stale_temp_dirs(tmp_path):
+    """A killed export leaves most of a gigabyte behind under .export-*."""
+    from yn.onnx_backend import _sweep_stale_temp_dirs
+
+    stale = tmp_path / ".export-abc123"
+    stale.mkdir()
+    (stale / "model.onnx").write_text("half written")
+    keep = tmp_path / "real-export"
+    keep.mkdir()
+
+    _sweep_stale_temp_dirs(tmp_path)
+    assert not stale.exists()
+    assert keep.exists()
