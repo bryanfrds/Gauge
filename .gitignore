@@ -4,3 +4,8 @@ __pycache__/
 .pytest_cache/
 build/
 dist/
+
+# Training data and trained models. Often private (see train/train_choices.py);
+# never commit them.
+data/
+models/
