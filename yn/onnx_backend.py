@@ -189,7 +189,8 @@ def export(model_name: str, out_dir: Path | None = None) -> Path:
     # We export input_ids and attention_mask only. A model with segment embeddings
     # also needs token_type_ids, and baking them to zeros would score plausibly but
     # wrongly, so refuse rather than produce a quietly broken export.
-    if getattr(model.config, "type_vocab_size", 0):
+    # type_vocab_size of 1 (the RoBERTa family) means one segment, so zeros are right.
+    if (getattr(model.config, "type_vocab_size", 0) or 0) > 1:
         raise RuntimeError(
             f"{model_name} uses token_type_ids (type_vocab_size="
             f"{model.config.type_vocab_size}); the ONNX export supports only models "
@@ -202,7 +203,7 @@ def export(model_name: str, out_dir: Path | None = None) -> Path:
             ["sample text"], ["a sample statement"],
             truncation="only_first", max_length=512, padding=True, return_tensors="pt",
         )
-        # The default (dynamo) exporter writes weights to a sidecar `model.onnx.data`,
+        # The dynamo exporter writes weights to a sidecar `model.onnx.data`,
         # which ONNX Runtime memory-maps instead of copying into RSS. Measured: 608 MB
         # peak this way versus 990 MB for a single self-contained file (dynamo=False).
         torch.onnx.export(
@@ -218,6 +219,7 @@ def export(model_name: str, out_dir: Path | None = None) -> Path:
             },
             opset_version=OPSET,
             do_constant_folding=True,
+            dynamo=True,  # explicit: only this exporter writes the sidecar weights file
         )
         # The fast tokenizer as one file, so the runtime path needs no transformers.
         tokenizer.backend_tokenizer.save(str(tmp / TOKENIZER_FILE))
@@ -238,6 +240,20 @@ def export(model_name: str, out_dir: Path | None = None) -> Path:
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     return final
+
+
+def _env_threads() -> int | None:
+    """YN_ONNX_THREADS is config, so a bad value is an error, not a reason to fall back."""
+    raw = os.environ.get("YN_ONNX_THREADS")
+    if not raw:
+        return None
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    if value < 1:
+        raise ValueError(f"YN_ONNX_THREADS must be a whole number of 1 or more, got {raw!r}")
+    return value
 
 
 class OnnxRunner:
@@ -297,9 +313,9 @@ class OnnxRunner:
             opts.log_severity_level = 3
         # One session per process; threads are capped so several YN processes on a
         # small box don't each grab every core.
-        threads = os.environ.get("YN_ONNX_THREADS")
+        threads = _env_threads()
         if threads:
-            opts.intra_op_num_threads = int(threads)
+            opts.intra_op_num_threads = threads
         self.session = ort.InferenceSession(
             str(self.dir / MODEL_FILE), opts, providers=["CPUExecutionProvider"]
         )

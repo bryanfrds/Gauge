@@ -152,6 +152,9 @@ class Decider:
 
         if self.backend == "onnx":
             return True
+        # ONNX runs on the CPU here, so "auto" leaves an explicitly chosen GPU alone.
+        if self.device not in ("auto", "cpu"):
+            return False
         return is_exported(self.model_name)
 
     def _load_onnx_runner(self):
@@ -160,7 +163,11 @@ class Decider:
         An export can be complete and current and still not load: onnxruntime may not
         be installed (`pip install yn[export]` alone does exactly that), or the graph
         may be corrupt. "auto" promises a silent fallback, so only "onnx" raises.
+        A bad YN_ONNX_THREADS is the user's config, though, so it always raises.
         """
+        from yn.onnx_backend import _env_threads
+
+        _env_threads()
         try:
             from yn.onnx_backend import OnnxRunner
 

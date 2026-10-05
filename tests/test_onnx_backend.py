@@ -639,3 +639,35 @@ def test_sweep_never_runs_outside_yns_own_cache(cache_root, tmp_path):
     _aged(theirs, 2 * 3600)
     _sweep_stale_temp_dirs(home)
     assert theirs.exists()
+
+
+def test_bad_onnx_threads_is_an_error_even_on_auto(monkeypatch, tmp_path):
+    """A typo in config should be reported, not quietly turned into a torch fallback."""
+    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    write_export(tmp_path / _slug("fake-model"))
+    monkeypatch.setenv("YN_ONNX_THREADS", "four")
+    d = Decider(model_name="fake-model", backend="auto")
+    with pytest.raises(ValueError, match="YN_ONNX_THREADS"):
+        d._load_onnx_runner()
+
+
+@pytest.mark.parametrize("raw", ["0", "-2"])
+def test_onnx_threads_must_be_at_least_one(monkeypatch, raw):
+    monkeypatch.setenv("YN_ONNX_THREADS", raw)
+    with pytest.raises(ValueError, match="1 or more"):
+        onnx_backend._env_threads()
+
+
+def test_onnx_threads_reads_a_whole_number(monkeypatch):
+    monkeypatch.setenv("YN_ONNX_THREADS", "3")
+    assert onnx_backend._env_threads() == 3
+
+
+@pytest.mark.parametrize("device", ["mps", "cuda"])
+def test_auto_leaves_an_explicitly_chosen_gpu_on_torch(monkeypatch, tmp_path, device):
+    """ONNX runs on the CPU here, so an export must not override YN_DEVICE=mps/cuda."""
+    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    write_export(tmp_path / _slug("fake-model"))
+    assert not Decider(model_name="fake-model", backend="auto", device=device)._use_onnx()
+    assert Decider(model_name="fake-model", backend="auto", device="cpu")._use_onnx()
+    assert Decider(model_name="fake-model", backend="onnx", device=device)._use_onnx()
