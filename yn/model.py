@@ -25,6 +25,17 @@ MAX_STATEMENT_CHARS = 1_000  # cheap first check, before tokenizing
 # checked in tokens as well as characters.
 MAX_STATEMENT_TOKENS = 400
 BATCH_SIZE = 16
+# "auto" prefers an ONNX export when one exists, else PyTorch. See yn/onnx_backend.py.
+DEFAULT_BACKEND = "auto"
+
+
+def _softmax(a, axis: int = -1):
+    """Softmax over `axis` for a numpy array. Shared by both backends."""
+    import numpy as np
+
+    shifted = a - a.max(axis=axis, keepdims=True)
+    e = np.exp(shifted)
+    return e / e.sum(axis=axis, keepdims=True)
 
 
 class InputError(ValueError):
@@ -111,23 +122,78 @@ class Decider:
         threshold: float | None = None,
         device: str | None = None,
         template: str = DEFAULT_TEMPLATE,
+        backend: str | None = None,
     ):
         self.model_name = model_name or os.environ.get("YN_MODEL", DEFAULT_MODEL)
         self.threshold = threshold if threshold is not None else _env_threshold()
         self.device = device or os.environ.get("YN_DEVICE", "auto")
+        self.backend = backend or os.environ.get("YN_BACKEND", DEFAULT_BACKEND)
+        if self.backend not in ("auto", "torch", "onnx"):
+            raise RuntimeError(
+                f"YN_BACKEND must be auto, torch or onnx, got {self.backend!r}"
+            )
         self.template = template
         self._model = None
+        self._runner = None  # ONNX backend, when in use
         self._tokenizer = None
         self._entail_idx = 0
         self._lock = threading.Lock()  # guards loading
-        # Guards inference. MCP runs tool calls in parallel worker threads, and
-        # concurrent use of one model on the Apple GPU aborts the whole process.
+        # Guards inference. MCP runs tool calls in parallel worker threads. On torch,
+        # concurrent use of one model on the Apple GPU aborts the whole process; on
+        # ONNX the session itself is thread-safe but the tokenizer is shared mutable
+        # state, so both backends need this held.
         self._infer_lock = threading.Lock()
+
+    def _use_onnx(self) -> bool:
+        """Explicit "onnx" always; "auto" only when an export is already on disk."""
+        if self.backend == "torch":
+            return False
+        from yn.onnx_backend import is_exported
+
+        if self.backend == "onnx":
+            return True
+        # ONNX runs on the CPU here, so "auto" leaves an explicitly chosen GPU alone.
+        if self.device not in ("auto", "cpu"):
+            return False
+        return is_exported(self.model_name)
+
+    def _load_onnx_runner(self):
+        """Build the ONNX runner, or None when "auto" should fall back to torch.
+
+        An export can be complete and current and still not load: onnxruntime may not
+        be installed (`pip install yn[export]` alone does exactly that), or the graph
+        may be corrupt. "auto" promises a silent fallback, so only "onnx" raises.
+        A bad YN_ONNX_THREADS is the user's config, though, so it always raises.
+        """
+        from yn.onnx_backend import _env_threads
+
+        _env_threads()
+        try:
+            from yn.onnx_backend import OnnxRunner
+
+            return OnnxRunner(self.model_name)
+        except Exception as e:
+            if self.backend == "onnx":
+                raise
+            if os.environ.get("YN_VERBOSE"):
+                import sys
+
+                print(f"yn: ONNX backend unavailable ({type(e).__name__}: {e}); "
+                      f"using torch", file=sys.stderr)
+            return None
 
     def load(self) -> None:
         with self._lock:
-            if self._model is not None:
+            if self._model is not None or self._runner is not None:
                 return
+            if self._use_onnx():
+                runner = self._load_onnx_runner()
+                if runner is not None:
+                    self._entail_idx = runner.entail_idx
+                    self.device = "cpu"  # ONNX Runtime here is CPU-only
+                    self._runner = runner
+                    return
+                # backend="auto" and the runner wouldn't build: fall through to torch.
             if not os.environ.get("YN_VERBOSE"):
                 _quiet_libraries()
             import torch
@@ -145,10 +211,21 @@ class Decider:
             self._model = model.to(self.device).eval()
 
     def _logits(self, pairs: list[tuple[str, str]]):
-        """Raw logits, shape (len(pairs), num_labels), for (text, statement) pairs."""
-        import torch
+        """Raw logits as numpy, shape (len(pairs), num_labels), for (text, statement)."""
+        import numpy as np
 
         self.load()  # outside _infer_lock: load() takes its own lock
+        if self._runner is not None:
+            with self._infer_lock:
+                self._check_statement_tokens({h for _, h in pairs})
+                out = [
+                    self._runner.logits(pairs[i : i + BATCH_SIZE])
+                    for i in range(0, len(pairs), BATCH_SIZE)
+                ]
+            return np.concatenate(out)
+
+        import torch
+
         out = []
         with self._infer_lock, torch.inference_mode():
             self._check_statement_tokens({h for _, h in pairs})
@@ -162,8 +239,8 @@ class Decider:
                     padding=True,
                     return_tensors="pt",
                 ).to(self.device)
-                out.append(self._model(**enc).logits.float().cpu())
-        return torch.cat(out)
+                out.append(self._model(**enc).logits.float().cpu().numpy())
+        return np.concatenate(out)
 
     def check_statements(self, statements: list[str]) -> None:
         """Raise InputError if any statement is over the token limit. Loads the model."""
@@ -174,7 +251,10 @@ class Decider:
     def _check_statement_tokens(self, statements: set[str]) -> None:
         """Call with _infer_lock held (the tokenizer is shared)."""
         for s in statements:
-            n = len(self._tokenizer(s, add_special_tokens=False)["input_ids"])
+            if self._runner is not None:
+                n = self._runner.count_tokens(s)
+            else:
+                n = len(self._tokenizer(s, add_special_tokens=False)["input_ids"])
             if n > MAX_STATEMENT_TOKENS:
                 raise InputError(f"a claim or option is {n} tokens; the limit is "
                                  f"{MAX_STATEMENT_TOKENS}. Shorten it.")
@@ -194,7 +274,7 @@ class Decider:
             return []
         logits = self._logits([(t, claim) for t in texts])
         # Softmax over the model's own labels; P(true) = P(entailment).
-        probs = logits.softmax(dim=-1)[:, self._entail_idx].tolist()
+        probs = _softmax(logits)[:, self._entail_idx].tolist()
         return [self._decision({"true": p, "false": 1 - p}) for p in probs]
 
     def decide_many(self, texts: list[str], options: list[str]) -> list[Decision]:
@@ -205,9 +285,9 @@ class Decider:
             return []
         statements = [_as_statement(o, self.template) for o in options]
         pairs = [(t, s) for t in texts for s in statements]
-        entail = self._logits(pairs)[:, self._entail_idx].view(len(texts), len(options))
+        entail = self._logits(pairs)[:, self._entail_idx].reshape(len(texts), len(options))
         # Softmax across options, so scores sum to 1 (single-choice).
-        probs = entail.softmax(dim=-1).tolist()
+        probs = _softmax(entail).tolist()
         return [self._decision(dict(zip(options, row))) for row in probs]
 
     def check(self, text: str, claim: str) -> Decision:

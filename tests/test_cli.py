@@ -319,3 +319,153 @@ def test_broken_pipe_exits_quietly_not_false(check_p, monkeypatch):
     finally:
         os.close(read_fd)
         os.close(write_fd)
+
+
+# --- export-onnx ---------------------------------------------------------------------
+
+def test_parse_export_onnx_defaults():
+    a = _parser().parse_args(["export-onnx"])
+    assert (a.cmd, a.model, a.out) == ("export-onnx", None, None)
+
+
+def test_parse_export_onnx_with_model_and_out():
+    a = _parser().parse_args(["export-onnx", "--model", "some/model", "--out", "/tmp/onnx"])
+    assert (a.cmd, a.model, a.out) == ("export-onnx", "some/model", "/tmp/onnx")
+
+
+@pytest.mark.parametrize("flag, field", [("--model", "model"), ("--out", "out")])
+def test_parse_export_onnx_accepts_either_flag_alone(flag, field):
+    a = _parser().parse_args(["export-onnx", flag, "value"])
+    assert getattr(a, field) == "value"
+    other = "out" if field == "model" else "model"
+    assert getattr(a, other) is None
+
+
+def test_parse_export_onnx_takes_no_positional_text():
+    with pytest.raises(SystemExit) as e:
+        _parser().parse_args(["export-onnx", "some/model"])
+    assert e.value.code == EXIT_USAGE
+
+
+@pytest.fixture
+def fake_export(monkeypatch, tmp_path):
+    """Record calls to onnx_backend.export instead of exporting anything."""
+    from yn import onnx_backend
+
+    calls = []
+
+    def export(model, out_dir=None):
+        calls.append((model, out_dir))
+        return tmp_path / "exported"
+
+    monkeypatch.setattr(onnx_backend, "export", export)
+    return calls
+
+
+def test_export_onnx_uses_default_model(fake_export, capsys):
+    assert main(["export-onnx"]) == 0
+    assert fake_export == [(DEFAULT_MODEL, None)]
+    assert "exported" in capsys.readouterr().err
+
+
+def test_export_onnx_model_flag_wins_over_env(monkeypatch, fake_export):
+    monkeypatch.setenv("YN_MODEL", "from/env")
+    assert main(["export-onnx", "--model", "from/flag"]) == 0
+    assert fake_export == [("from/flag", None)]
+
+
+def test_export_onnx_falls_back_to_env_model(monkeypatch, fake_export):
+    monkeypatch.setenv("YN_MODEL", "from/env")
+    assert main(["export-onnx"]) == 0
+    assert fake_export == [("from/env", None)]
+
+
+def test_export_onnx_passes_out_directory(fake_export, tmp_path):
+    assert main(["export-onnx", "--out", str(tmp_path / "dest")]) == 0
+    assert fake_export == [(DEFAULT_MODEL, str(tmp_path / "dest"))]
+
+
+def test_export_onnx_prints_nothing_on_stdout(fake_export, capsys):
+    main(["export-onnx"])
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "exported" in captured.err
+
+
+def test_export_onnx_promises_auto_pickup_only_for_the_default_location(
+    monkeypatch, tmp_path, capsys
+):
+    """The export really is where YN will look, so the auto-pickup line is true."""
+    from yn import onnx_backend
+
+    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    monkeypatch.setattr(onnx_backend, "export",
+                        lambda model, out_dir=None: onnx_backend.export_dir(model))
+    main(["export-onnx"])
+    assert "YN_BACKEND=torch" in capsys.readouterr().err
+
+
+def test_export_onnx_tells_you_how_to_use_an_out_directory(
+    monkeypatch, tmp_path, capsys
+):
+    """--out puts it somewhere YN won't look; the advice must actually lead there."""
+    import re
+
+    from yn import onnx_backend
+    from yn.model import DEFAULT_MODEL
+
+    out = tmp_path / "elsewhere" / onnx_backend._slug(DEFAULT_MODEL)
+    monkeypatch.setattr(onnx_backend, "export", lambda model, out_dir=None: out)
+    main(["export-onnx", "--out", str(out)])
+    err = capsys.readouterr().err
+    assert "used automatically" not in err
+    value = re.search(r"YN_ONNX_DIR=(\S+)", err).group(1)
+    monkeypatch.setenv("YN_ONNX_DIR", value)
+    assert onnx_backend.export_dir(DEFAULT_MODEL) == out
+
+
+def test_export_onnx_says_a_wrongly_named_out_directory_must_be_renamed(
+    monkeypatch, tmp_path, capsys
+):
+    """YN looks in YN_ONNX_DIR/<slug>, so no setting reaches a folder named "m"."""
+    from yn import onnx_backend
+    from yn.model import DEFAULT_MODEL
+
+    out = tmp_path / "elsewhere" / "m"
+    monkeypatch.setattr(onnx_backend, "export", lambda model, out_dir=None: out)
+    main(["export-onnx", "--out", str(out)])
+    err = capsys.readouterr().err
+    assert "YN_ONNX_DIR=" not in err
+    assert str(out.parent / onnx_backend._slug(DEFAULT_MODEL)) in err
+
+
+def test_export_onnx_tells_you_to_set_yn_model_for_another_model(
+    monkeypatch, tmp_path, capsys
+):
+    from yn import onnx_backend
+
+    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    monkeypatch.setattr(onnx_backend, "export",
+                        lambda model, out_dir=None: onnx_backend.export_dir(model))
+    main(["export-onnx", "--model", "other/thing"])
+    err = capsys.readouterr().err
+    assert "YN_MODEL=other/thing" in err
+    assert "used automatically" not in err
+
+
+def test_export_onnx_does_not_read_stdin(fake_export, monkeypatch):
+    monkeypatch.setattr("sys.stdin", TTY(""))  # reading it would raise "no input"
+    assert main(["export-onnx"]) == 0
+
+
+def test_export_onnx_missing_extra_is_a_clear_setup_error(monkeypatch, capsys):
+    from yn import onnx_backend
+
+    def export(model, out_dir=None):
+        raise ImportError("No module named 'onnxscript'")
+
+    monkeypatch.setattr(onnx_backend, "export", export)
+    assert main(["export-onnx"]) == EXIT_ERROR
+    err = capsys.readouterr().err
+    assert "pip install 'yn[export]'" in err
+    assert "onnxscript" in err
