@@ -21,12 +21,18 @@ The export lands in `~/.cache/yn/onnx/<model>/` and is picked up automatically.
 
 | Variable | Effect |
 |---|---|
-| `YN_BACKEND` | `auto` (default: ONNX when an export exists), `torch`, or `onnx` |
+| `YN_BACKEND` | `auto` (default: ONNX when an export exists, unless `YN_DEVICE` names a GPU), `torch`, or `onnx` |
 | `YN_ONNX_DIR` | Where exports live. Point this at a mounted volume in a container. |
-| `YN_ONNX_THREADS` | Cap ONNX Runtime's threads, so several YN processes on one small box don't each grab every core. |
+| `YN_ONNX_THREADS` | Cap ONNX Runtime's threads (a whole number, 1 or more), so several YN processes on one small box don't each grab every core. A bad value is an error, even on `auto`. |
 
 `YN_BACKEND=onnx` fails loudly when there is no export. `auto` quietly falls back to
 PyTorch, which is what you want on a developer machine.
+
+`yn export-onnx --out <dir>` only writes into an empty directory or over an earlier
+export. It refuses a directory holding anything else, and it never deletes a path it
+didn't create. YN looks for an export in a folder named after the model, so if you
+export elsewhere, name the folder as the command tells you and set `YN_ONNX_DIR` to
+its parent.
 
 ## Measurements
 
