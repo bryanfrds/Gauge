@@ -64,45 +64,76 @@ def export_dir(model_name: str) -> Path:
     return Path(cache).expanduser() / "yn" / "onnx" / _slug(model_name)
 
 
-def _replace_export(tmp: Path, final: Path) -> None:
-    """Move `tmp` onto `final`, refusing to delete anything YN did not write.
+EXPORT_FILES = frozenset({MODEL_FILE, WEIGHTS_FILE, TOKENIZER_FILE, META_FILE})
+TEMP_PREFIX = ".export-"
+# A temp directory younger than this may belong to an export still running.
+STALE_AFTER_SECONDS = 3600
 
-    `final` can be any path the user passed to --out, so a blind rmtree here would
-    wipe a directory of theirs. Only an existing export (or an empty directory) is
-    replaced; anything else is refused.
+
+def _is_export_dir(directory: Path) -> bool:
+    """True only for a directory YN wrote: its metadata, and nothing but its files.
+
+    `meta.json` alone proves nothing (it is a common name), so the metadata must be
+    ours and there must be no file an export doesn't contain.
+    """
+    meta = read_meta(directory)
+    if not isinstance(meta, dict) or "format_version" not in meta or "model" not in meta:
+        return False
+    return {p.name for p in directory.iterdir()} <= EXPORT_FILES
+
+
+def _replace_export(tmp: Path, final: Path) -> None:
+    """Move `tmp` onto `final`, never deleting anything YN did not write.
+
+    `final` can be any path the user passed to --out. Only an empty directory or an
+    earlier export is replaced; anything else is refused. The old export is moved into
+    a temp directory made just for it, so no existing path is ever deleted.
     """
     import shutil
+    import tempfile
 
-    if final.exists():
-        if not final.is_dir():
-            raise RuntimeError(f"{final} exists and is not a directory")
-        if any(final.iterdir()) and not (final / META_FILE).is_file():
-            raise RuntimeError(
-                f"{final} is not empty and is not a yn export (no {META_FILE}). "
-                f"Refusing to replace it; pick an empty directory or remove it yourself."
-            )
-        # Move the old export aside rather than deleting first, so a crash mid-swap
-        # leaves the previous export in place instead of nothing at all.
-        old = final.with_name(final.name + ".old")
-        shutil.rmtree(old, ignore_errors=True)
-        os.replace(final, old)
-        try:
-            os.replace(tmp, final)
-        except OSError:
-            os.replace(old, final)  # put it back
-            raise
-        shutil.rmtree(old, ignore_errors=True)
-    else:
+    if not final.exists():
         os.replace(tmp, final)
+        return
+    if not final.is_dir():
+        raise RuntimeError(f"{final} exists and is not a directory")
+    if any(final.iterdir()) and not _is_export_dir(final):
+        raise RuntimeError(
+            f"{final} is not empty and is not a yn export. Refusing to replace it; "
+            f"pick an empty directory or remove it yourself."
+        )
+    # Moved aside rather than deleted first, so a failed swap can put it back. If the
+    # process is killed mid-swap, the old export is left in this temp directory and
+    # "auto" uses torch until the next export.
+    holder = Path(tempfile.mkdtemp(prefix=TEMP_PREFIX + "old-", dir=final.parent))
+    old = holder / "export"
+    os.replace(final, old)
+    try:
+        os.replace(tmp, final)
+    except OSError:
+        os.replace(old, final)  # put it back
+        raise
+    shutil.rmtree(holder, ignore_errors=True)
 
 
 def _sweep_stale_temp_dirs(parent: Path) -> None:
-    """Remove .export-* left by a killed export; each is most of a gigabyte."""
-    import shutil
+    """Remove temp directories a killed export left behind; each is most of a gigabyte.
 
-    for d in parent.glob(".export-*"):
-        if d.is_dir():
-            shutil.rmtree(d, ignore_errors=True)
+    Only in YN's own export cache, never next to a user's --out directory, and only
+    ones old enough that no export can still be writing to them.
+    """
+    import shutil
+    import time
+
+    if parent.resolve() != export_dir("x").parent.resolve():
+        return
+    cutoff = time.time() - STALE_AFTER_SECONDS
+    for d in parent.glob(TEMP_PREFIX + "*"):
+        try:
+            if d.is_dir() and d.stat().st_mtime < cutoff:
+                shutil.rmtree(d, ignore_errors=True)
+        except OSError:
+            pass  # removed by someone else meanwhile
 
 
 def read_meta(directory: Path) -> dict | None:
@@ -165,7 +196,7 @@ def export(model_name: str, out_dir: Path | None = None) -> Path:
             f"without segment embeddings. Use YN_BACKEND=torch for this model."
         )
 
-    tmp = Path(tempfile.mkdtemp(prefix=".export-", dir=final.parent))
+    tmp = Path(tempfile.mkdtemp(prefix=TEMP_PREFIX, dir=final.parent))
     try:
         enc = tokenizer(
             ["sample text"], ["a sample statement"],

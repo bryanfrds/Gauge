@@ -486,14 +486,14 @@ def test_replace_export_refuses_a_directory_that_is_not_an_export(tmp_path):
 def test_replace_export_replaces_a_previous_export(tmp_path):
     from yn.onnx_backend import _replace_export
 
-    final = write_export(tmp_path / "export")
-    (final / "stale-marker").write_text("old")
+    final = write_export(tmp_path / "export", entail_idx=0)
     tmp = tmp_path / "staged"
-    write_export(tmp)
+    write_export(tmp, entail_idx=2)
 
     _replace_export(tmp, final)
-    assert (final / onnx_backend.META_FILE).is_file()
-    assert not (final / "stale-marker").exists()
+    assert onnx_backend.read_meta(final)["entail_idx"] == 2
+    assert not tmp.exists()
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["export"]  # nothing left over
 
 
 def test_replace_export_accepts_an_empty_directory(tmp_path):
@@ -507,16 +507,135 @@ def test_replace_export_accepts_an_empty_directory(tmp_path):
     assert (final / onnx_backend.META_FILE).is_file()
 
 
-def test_sweep_removes_stale_temp_dirs(tmp_path):
+def _aged(d: Path, seconds: float) -> Path:
+    import os
+    import time
+
+    t = time.time() - seconds
+    os.utime(d, (t, t))
+    return d
+
+
+def test_replace_export_refuses_a_user_directory_that_has_a_meta_json(tmp_path):
+    """meta.json is a common file name; it alone doesn't make a directory ours."""
+    from yn.onnx_backend import _replace_export
+
+    victim = tmp_path / "my-project"
+    victim.mkdir()
+    (victim / "meta.json").write_text('{"name": "my project"}')
+    (victim / "precious.txt").write_text("do not delete")
+    tmp = write_export(tmp_path / "staged")
+
+    with pytest.raises(RuntimeError, match="not a yn export"):
+        _replace_export(tmp, victim)
+    assert (victim / "precious.txt").read_text() == "do not delete"
+
+
+def test_replace_export_refuses_a_folder_holding_only_someone_elses_meta_json(tmp_path):
+    """Every file name matches an export's, but the metadata isn't ours."""
+    from yn.onnx_backend import _replace_export
+
+    victim = tmp_path / "config"
+    victim.mkdir()
+    (victim / "meta.json").write_text('{"name": "my settings"}')
+    tmp = write_export(tmp_path / "staged")
+
+    with pytest.raises(RuntimeError, match="not a yn export"):
+        _replace_export(tmp, victim)
+    assert "my settings" in (victim / "meta.json").read_text()
+
+
+def test_replace_export_refuses_an_export_with_a_user_file_added(tmp_path):
+    """Our metadata, but a file we never write: replacing it would delete that file."""
+    from yn.onnx_backend import _replace_export
+
+    final = write_export(tmp_path / "export")
+    (final / "notes.txt").write_text("mine")
+    tmp = write_export(tmp_path / "staged")
+
+    with pytest.raises(RuntimeError, match="not a yn export"):
+        _replace_export(tmp, final)
+    assert (final / "notes.txt").read_text() == "mine"
+
+
+def test_replace_export_leaves_a_users_dot_old_sibling_alone(tmp_path):
+    """The old export is set aside in a temp dir of our own, not at <out>.old."""
+    from yn.onnx_backend import _replace_export
+
+    sibling = tmp_path / "export.old"
+    sibling.mkdir()
+    (sibling / "user.txt").write_text("mine")
+    final = write_export(tmp_path / "export")
+    tmp = write_export(tmp_path / "staged")
+
+    _replace_export(tmp, final)
+    assert (sibling / "user.txt").read_text() == "mine"
+
+
+def test_replace_export_puts_the_old_export_back_if_the_swap_fails(tmp_path, monkeypatch):
+    import os
+
+    from yn.onnx_backend import _replace_export
+
+    final = write_export(tmp_path / "export", entail_idx=0)
+    tmp = write_export(tmp_path / "staged", entail_idx=2)
+    real_replace = os.replace
+
+    def flaky(src, dst):
+        if Path(src) == tmp:
+            raise OSError("disk full")
+        real_replace(src, dst)
+
+    monkeypatch.setattr(onnx_backend.os, "replace", flaky)
+    with pytest.raises(OSError):
+        _replace_export(tmp, final)
+    assert onnx_backend.read_meta(final)["entail_idx"] == 0
+
+
+@pytest.fixture
+def cache_root(monkeypatch, tmp_path):
+    """YN's own export cache, where sweeping is allowed."""
+    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path / "cache"))
+    root = tmp_path / "cache"
+    root.mkdir()
+    return root
+
+
+def test_sweep_removes_stale_temp_dirs(cache_root):
     """A killed export leaves most of a gigabyte behind under .export-*."""
     from yn.onnx_backend import _sweep_stale_temp_dirs
 
-    stale = tmp_path / ".export-abc123"
+    stale = cache_root / ".export-abc123"
     stale.mkdir()
     (stale / "model.onnx").write_text("half written")
-    keep = tmp_path / "real-export"
+    _aged(stale, 2 * 3600)
+    (cache_root / ".export-old-xyz").mkdir()
+    old_swap = _aged(cache_root / ".export-old-xyz", 2 * 3600)
+    keep = cache_root / "real-export"
     keep.mkdir()
 
-    _sweep_stale_temp_dirs(tmp_path)
+    _sweep_stale_temp_dirs(cache_root)
     assert not stale.exists()
+    assert not old_swap.exists()
     assert keep.exists()
+
+
+def test_sweep_leaves_a_temp_dir_another_export_is_still_writing(cache_root):
+    from yn.onnx_backend import _sweep_stale_temp_dirs
+
+    running = cache_root / ".export-running"
+    running.mkdir()
+    _sweep_stale_temp_dirs(cache_root)
+    assert running.exists()
+
+
+def test_sweep_never_runs_outside_yns_own_cache(cache_root, tmp_path):
+    """--out can sit in a user's home folder; their .export-* is not ours to delete."""
+    from yn.onnx_backend import _sweep_stale_temp_dirs
+
+    home = tmp_path / "home"
+    theirs = home / ".export-settings"
+    theirs.mkdir(parents=True)
+    _aged(theirs, 2 * 3600)
+    _sweep_stale_temp_dirs(home)
+    assert theirs.exists()
