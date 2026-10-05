@@ -1,0 +1,22 @@
+name: tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      # The CPU-only torch build is a fraction of the default download.
+      - run: pip install --extra-index-url https://download.pytorch.org/whl/cpu -e '.[dev,onnx]'
+      # The slow tests download and run the real model; these use stand-ins.
+      - run: python -m pytest -q -m "not slow"
