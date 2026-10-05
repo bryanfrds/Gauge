@@ -25,6 +25,9 @@ fix. Details in [CLAUDE-AND-CODEX.md](CLAUDE-AND-CODEX.md#stand-in-model).
 - Fine-tune a small open model on it, and compare ModernBERT vs DeBERTa.
 - Compare against a prompted LLM on accuracy, speed and cost.
 - **Done when:** we have numbers showing whether a small model is good enough for this.
+- **Progress (2026-10-05):** sentiment toward a named company, trained on 15k
+  LLM-labelled posts: 51% → 86–88% agreement with the LLM. Not there yet on the
+  rarer labels. Results and method in [TRAINING.md](TRAINING.md).
 
 ## Phase 2 — One model, many decisions
 
