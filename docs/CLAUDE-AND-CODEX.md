@@ -64,7 +64,7 @@ Every open chat starts its own YN server, so an idle one holds almost nothing. T
 runs in a separate process that starts on the first question and stops after two quiet
 minutes, which hands all of its memory back. Measured with the ONNX backend: the server
 itself uses about 60 MB, the model process about 610 MB while it is running, and the
-first answer after a pause takes under a second while the model process starts again.
+first answer after a pause takes up to about a second while the model process starts again.
 
 | Variable | Effect |
 |---|---|
@@ -133,8 +133,8 @@ characters per input, and claims or options up to 1,000 characters and 400 token
 longer document gets exit code 64 rather than being silently cut. Split it first.
 
 Each `yn` run loads the model, which takes about 3–4 seconds. For many decisions,
-use `--lines` or the MCP server, which keeps the model loaded between questions (see
-[Memory](#memory)).
+use `--lines` or the MCP server, which keeps the model loaded for a couple of minutes
+between questions (see [Memory](#memory)).
 
 ## Model routing: `yn route`
 
