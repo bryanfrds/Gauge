@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from yn.cli import EXIT_ERROR, EXIT_FALSE, EXIT_UNSURE, EXIT_USAGE, _parser, main
+from yn.cli import EXIT_ERROR, EXIT_FALSE, EXIT_UNSURE, EXIT_USAGE, _decide_args, _parser, main
 from yn.model import DEFAULT_MODEL
 
 CLAIM = "This email is spam."
@@ -51,16 +51,59 @@ def test_parse_check_defaults():
     assert (a.text, a.json, a.lines, a.threshold, a.exit_code) == (None, False, False, None, False)
 
 
+def _decide(argv):
+    a = _parser().parse_args(["decide", *argv])
+    _decide_args(a)
+    return a
+
+
 def test_parse_decide_repeated_options_in_order():
-    a = _parser().parse_args(["decide", "-o", "billing", "--option", "shipping", "-o", "tech", "txt"])
+    a = _decide(["-o", "billing", "--option", "shipping", "-o", "tech", "txt"])
     assert a.options == ["billing", "shipping", "tech"]
     assert a.text == "txt"
 
 
-def test_parse_decide_requires_option(capsys):
-    with pytest.raises(SystemExit) as e:
-        _parser().parse_args(["decide", "txt"])
-    assert e.value.code == EXIT_USAGE  # not 2, which means "unsure"
+def test_decide_options_can_follow_the_text():
+    a = _decide(["hi", "greeting", "question", "complaint"])
+    assert a.text == "hi"
+    assert a.options == ["greeting", "question", "complaint"]
+
+
+def test_decide_dash_reads_the_text_from_stdin():
+    a = _decide(["-", "billing", "shipping"])
+    assert a.text is None
+    assert a.options == ["billing", "shipping"]
+
+
+def test_decide_with_o_still_reads_stdin_when_no_text_is_given():
+    assert _decide(["-o", "a", "-o", "b"]).text is None
+
+
+@pytest.mark.parametrize("argv", [["txt"], ["txt", "only-one"], []])
+def test_decide_without_enough_options_says_how_to_ask(argv, capsys):
+    assert main(["decide", *argv]) == EXIT_USAGE  # not 2, which means "unsure"
+    assert 'yn decide "hi" greeting question' in capsys.readouterr().err
+
+
+def test_decide_refuses_mixing_o_with_listed_options(capsys):
+    """Otherwise "yn decide -o a hi b" would quietly treat "hi b" as... what?"""
+    assert main(["decide", "-o", "a", "-o", "b", "hi", "c"]) == EXIT_USAGE
+    assert "one quoted argument" in capsys.readouterr().err
+
+
+def test_decide_listed_options_reach_the_model(monkeypatch, capsys):
+    from yn.model import Decider, Decision
+
+    seen = {}
+
+    def fake(self, texts, options):
+        seen.update(texts=texts, options=options)
+        return [Decision(options[0], 0.95, {o: 0.5 for o in options}, True, "fake")]
+
+    monkeypatch.setattr(Decider, "decide_many", fake)
+    assert main(["decide", "hi", "greeting", "question"]) == 0
+    assert seen == {"texts": ["hi"], "options": ["greeting", "question"]}
+    assert capsys.readouterr().out.startswith("greeting\t0.95")
 
 
 def test_parse_requires_subcommand():
@@ -469,3 +512,63 @@ def test_export_onnx_missing_extra_is_a_clear_setup_error(monkeypatch, capsys):
     err = capsys.readouterr().err
     assert "pip install 'yn[export]'" in err
     assert "onnxscript" in err
+
+
+@pytest.fixture
+def heard(monkeypatch):
+    """What decide_many was asked, with the model stubbed out."""
+    from yn.model import Decider, Decision
+
+    seen = {}
+
+    def fake(self, texts, options):
+        seen.update(texts=texts, options=options)
+        return [Decision(options[0], 0.95, {o: 0.5 for o in options}, True, "fake")
+                for _ in texts]
+
+    monkeypatch.setattr(Decider, "decide_many", fake)
+    return seen
+
+
+@pytest.mark.parametrize("argv", [
+    ["hi", "greeting", "--json", "question"],
+    ["hi", "--threshold", "0.5", "greeting", "question"],
+    ["--json", "hi", "greeting", "question"],
+])
+def test_decide_flags_can_sit_between_the_options(heard, argv):
+    assert main(["decide", *argv]) == 0
+    assert heard == {"texts": ["hi"], "options": ["greeting", "question"]}
+
+
+def test_an_unknown_flag_is_still_an_error(heard, capsys):
+    with pytest.raises(SystemExit) as e:
+        main(["decide", "hi", "a", "--nope", "b"])
+    assert e.value.code == EXIT_USAGE
+    assert "--nope" in capsys.readouterr().err
+
+
+def test_piped_text_without_dash_gets_a_warning(heard, monkeypatch, capsys):
+    """`echo text | yn decide a b c` would judge "a"; say so instead of staying quiet."""
+    import yn.cli
+
+    monkeypatch.setattr(yn.cli, "_stdin_has_data", lambda: True)
+    main(["decide", "billing", "shipping", "technical"])
+    assert "stdin ignored" in capsys.readouterr().err
+
+
+def test_no_warning_when_the_text_comes_from_stdin(heard, monkeypatch, capsys):
+    import yn.cli
+
+    monkeypatch.setattr(yn.cli, "_stdin_has_data", lambda: True)
+    monkeypatch.setattr("sys.stdin", io.StringIO("card charged twice"))
+    main(["decide", "-", "billing", "shipping"])
+    assert "stdin ignored" not in capsys.readouterr().err
+    assert heard["texts"] == ["card charged twice"]
+
+
+def test_no_warning_from_a_terminal(heard, monkeypatch, capsys):
+    import yn.cli
+
+    monkeypatch.setattr(yn.cli, "_stdin_has_data", lambda: False)
+    main(["decide", "hi", "a", "b"])
+    assert "stdin ignored" not in capsys.readouterr().err

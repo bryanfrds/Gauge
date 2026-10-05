@@ -147,7 +147,7 @@ A version ships only when:
 
 - **Python library:** `pip install yn-model`, then `yn.decide(input, answers)`.
 - **HTTP server:** one `POST /decide` endpoint implementing §2.
-- **CLI:** `yn check "<claim>"` and `yn decide -o <option> -o <option>`, reading input
+- **CLI:** `yn check "<claim>"` and `yn decide "<text>" <option> <option>` (or `-o <option>` per option), reading input
   from an argument or stdin and printing `answer confidence`. See
   [CLAUDE-AND-CODEX.md](CLAUDE-AND-CODEX.md#terminal-command-yn).
 - **Stand-in interface note:** until YN's own model exists, the stand-in takes a
