@@ -95,7 +95,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _export_onnx(args) -> int:
-    from yn.onnx_backend import export, export_dir
+    from yn.onnx_backend import _slug, export, export_dir
 
     model = args.model or os.environ.get("YN_MODEL") or DEFAULT_MODEL
     out = export(model, args.out)
@@ -106,12 +106,15 @@ def _export_onnx(args) -> int:
     if runs_this_model and out == export_dir(model):
         print("the onnx backend is used automatically from now on; "
               "set YN_BACKEND=torch to opt out.", file=sys.stderr)
-    elif runs_this_model:
-        print(f"to use it, set YN_ONNX_DIR={out.parent}", file=sys.stderr)
+    elif out.name != _slug(model):
+        # YN looks in YN_ONNX_DIR/<slug>, so no setting can point it at this folder.
+        print(f"to use it, the folder must be named {_slug(model)}: re-run with "
+              f"--out {out.parent / _slug(model)}", file=sys.stderr)
     else:
-        print(f"to use it, set YN_MODEL={model}"
-              + ("" if out == export_dir(model) else f" and YN_ONNX_DIR={out.parent}"),
-              file=sys.stderr)
+        needs = [] if runs_this_model else [f"YN_MODEL={model}"]
+        if out != export_dir(model):
+            needs.append(f"YN_ONNX_DIR={out.parent}")
+        print("to use it, set " + " and ".join(needs), file=sys.stderr)
     return 0
 
 

@@ -408,15 +408,35 @@ def test_export_onnx_promises_auto_pickup_only_for_the_default_location(
 def test_export_onnx_tells_you_how_to_use_an_out_directory(
     monkeypatch, tmp_path, capsys
 ):
-    """--out puts it somewhere YN won't look, so it must not claim auto-pickup."""
-    from yn import onnx_backend
+    """--out puts it somewhere YN won't look; the advice must actually lead there."""
+    import re
 
-    monkeypatch.setattr(onnx_backend, "export",
-                        lambda model, out_dir=None: tmp_path / "elsewhere" / "m")
-    main(["export-onnx", "--out", str(tmp_path / "elsewhere" / "m")])
+    from yn import onnx_backend
+    from yn.model import DEFAULT_MODEL
+
+    out = tmp_path / "elsewhere" / onnx_backend._slug(DEFAULT_MODEL)
+    monkeypatch.setattr(onnx_backend, "export", lambda model, out_dir=None: out)
+    main(["export-onnx", "--out", str(out)])
     err = capsys.readouterr().err
-    assert "YN_ONNX_DIR=" in err
     assert "used automatically" not in err
+    value = re.search(r"YN_ONNX_DIR=(\S+)", err).group(1)
+    monkeypatch.setenv("YN_ONNX_DIR", value)
+    assert onnx_backend.export_dir(DEFAULT_MODEL) == out
+
+
+def test_export_onnx_says_a_wrongly_named_out_directory_must_be_renamed(
+    monkeypatch, tmp_path, capsys
+):
+    """YN looks in YN_ONNX_DIR/<slug>, so no setting reaches a folder named "m"."""
+    from yn import onnx_backend
+    from yn.model import DEFAULT_MODEL
+
+    out = tmp_path / "elsewhere" / "m"
+    monkeypatch.setattr(onnx_backend, "export", lambda model, out_dir=None: out)
+    main(["export-onnx", "--out", str(out)])
+    err = capsys.readouterr().err
+    assert "YN_ONNX_DIR=" not in err
+    assert str(out.parent / onnx_backend._slug(DEFAULT_MODEL)) in err
 
 
 def test_export_onnx_tells_you_to_set_yn_model_for_another_model(
