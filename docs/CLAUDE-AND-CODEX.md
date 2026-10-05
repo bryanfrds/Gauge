@@ -110,7 +110,7 @@ yn decide "My card was charged twice" billing shipping technical   # text, then 
 # billing	0.98
 
 echo "My card was charged twice" | yn decide - billing shipping technical   # - reads stdin
-yn decide -o "Needs a human." -o "Bot can answer." "text"   # -o for options with spaces
+yn decide -o billing -o shipping "My card was charged twice"   # the -o form still works
 
 yn route "Fix the typo in the README title"
 # claude-haiku-4-5	0.90
