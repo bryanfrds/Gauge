@@ -1,6 +1,7 @@
 """`yn` terminal command.
 
     yn check "This email is spam." "You won a free iPhone!"
+    yn decide "My card was charged twice" billing shipping technical
     echo "My card was charged twice" | yn decide -o billing -o shipping -o technical
     yn check "This is urgent." --lines < subjects.txt
     yn route "Fix the typo in the README title"        # which model should do this?
@@ -62,6 +63,27 @@ def _read_inputs(text: str | None, lines: bool) -> list[str]:
     return inputs
 
 
+def _decide_args(args) -> None:
+    """Split `yn decide TEXT OPTION OPTION...` into text and options.
+
+    With -o, the only positional is the text, as before. Without it, the first is the
+    text ("-" for stdin) and the rest are the options.
+    """
+    words = args.words
+    if args.options:
+        if len(words) > 1:
+            raise InputError("with -o, pass the text as one quoted argument, or list the "
+                             "options after the text instead of using -o")
+        args.text = words[0] if words else None
+    else:
+        if len(words) < 3:
+            raise InputError('give the text, then at least two options: '
+                             'yn decide "hi" greeting question')
+        args.text, args.options = words[0], words[1:]
+    if args.text == "-":
+        args.text = None
+
+
 def _parser() -> argparse.ArgumentParser:
     p = _Parser(prog="yn", description="Fast true/false and pick-one decisions.")
     common = _Parser(add_help=False)
@@ -76,9 +98,11 @@ def _parser() -> argparse.ArgumentParser:
     c.add_argument("text", nargs="?", help="text to judge (default: stdin)")
 
     d = sub.add_parser("decide", parents=[common], help="pick the best option for the text")
-    d.add_argument("-o", "--option", action="append", required=True, dest="options",
-                   help="an option; repeat for each (labels or full statements)")
-    d.add_argument("text", nargs="?", help="text to judge (default: stdin)")
+    d.add_argument("-o", "--option", action="append", dest="options",
+                   help="an option; repeat for each. Or list the options after the text.")
+    d.add_argument("words", nargs="*", metavar="text [option ...]",
+                   help='the text, then its options: yn decide "hi" greeting question. '
+                        'Use - for the text to read it from stdin.')
 
     r = sub.add_parser("route", parents=[common], help="pick a model for a task")
     r.add_argument("--routes", metavar="FILE",
@@ -131,6 +155,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"yn: error: {type(e).__name__}: {e}", file=sys.stderr)
             return EXIT_ERROR
     try:
+        if args.cmd == "decide":
+            _decide_args(args)
         inputs = _read_inputs(args.text, args.lines)
         decider = Decider(threshold=args.threshold)
         if args.cmd == "check":

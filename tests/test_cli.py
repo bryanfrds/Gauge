@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from yn.cli import EXIT_ERROR, EXIT_FALSE, EXIT_UNSURE, EXIT_USAGE, _parser, main
+from yn.cli import EXIT_ERROR, EXIT_FALSE, EXIT_UNSURE, EXIT_USAGE, _decide_args, _parser, main
 from yn.model import DEFAULT_MODEL
 
 CLAIM = "This email is spam."
@@ -51,16 +51,59 @@ def test_parse_check_defaults():
     assert (a.text, a.json, a.lines, a.threshold, a.exit_code) == (None, False, False, None, False)
 
 
+def _decide(argv):
+    a = _parser().parse_args(["decide", *argv])
+    _decide_args(a)
+    return a
+
+
 def test_parse_decide_repeated_options_in_order():
-    a = _parser().parse_args(["decide", "-o", "billing", "--option", "shipping", "-o", "tech", "txt"])
+    a = _decide(["-o", "billing", "--option", "shipping", "-o", "tech", "txt"])
     assert a.options == ["billing", "shipping", "tech"]
     assert a.text == "txt"
 
 
-def test_parse_decide_requires_option(capsys):
-    with pytest.raises(SystemExit) as e:
-        _parser().parse_args(["decide", "txt"])
-    assert e.value.code == EXIT_USAGE  # not 2, which means "unsure"
+def test_decide_options_can_follow_the_text():
+    a = _decide(["hi", "greeting", "question", "complaint"])
+    assert a.text == "hi"
+    assert a.options == ["greeting", "question", "complaint"]
+
+
+def test_decide_dash_reads_the_text_from_stdin():
+    a = _decide(["-", "billing", "shipping"])
+    assert a.text is None
+    assert a.options == ["billing", "shipping"]
+
+
+def test_decide_with_o_still_reads_stdin_when_no_text_is_given():
+    assert _decide(["-o", "a", "-o", "b"]).text is None
+
+
+@pytest.mark.parametrize("argv", [["txt"], ["txt", "only-one"], []])
+def test_decide_without_enough_options_says_how_to_ask(argv, capsys):
+    assert main(["decide", *argv]) == EXIT_USAGE  # not 2, which means "unsure"
+    assert 'yn decide "hi" greeting question' in capsys.readouterr().err
+
+
+def test_decide_refuses_mixing_o_with_listed_options(capsys):
+    """Otherwise "yn decide -o a hi b" would quietly treat "hi b" as... what?"""
+    assert main(["decide", "-o", "a", "-o", "b", "hi", "c"]) == EXIT_USAGE
+    assert "one quoted argument" in capsys.readouterr().err
+
+
+def test_decide_listed_options_reach_the_model(monkeypatch, capsys):
+    from yn.model import Decider, Decision
+
+    seen = {}
+
+    def fake(self, texts, options):
+        seen.update(texts=texts, options=options)
+        return [Decision(options[0], 0.95, {o: 0.5 for o in options}, True, "fake")]
+
+    monkeypatch.setattr(Decider, "decide_many", fake)
+    assert main(["decide", "hi", "greeting", "question"]) == 0
+    assert seen == {"texts": ["hi"], "options": ["greeting", "question"]}
+    assert capsys.readouterr().out.startswith("greeting\t0.95")
 
 
 def test_parse_requires_subcommand():
