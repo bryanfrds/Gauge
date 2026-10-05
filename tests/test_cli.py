@@ -512,3 +512,63 @@ def test_export_onnx_missing_extra_is_a_clear_setup_error(monkeypatch, capsys):
     err = capsys.readouterr().err
     assert "pip install 'yn[export]'" in err
     assert "onnxscript" in err
+
+
+@pytest.fixture
+def heard(monkeypatch):
+    """What decide_many was asked, with the model stubbed out."""
+    from yn.model import Decider, Decision
+
+    seen = {}
+
+    def fake(self, texts, options):
+        seen.update(texts=texts, options=options)
+        return [Decision(options[0], 0.95, {o: 0.5 for o in options}, True, "fake")
+                for _ in texts]
+
+    monkeypatch.setattr(Decider, "decide_many", fake)
+    return seen
+
+
+@pytest.mark.parametrize("argv", [
+    ["hi", "greeting", "--json", "question"],
+    ["hi", "--threshold", "0.5", "greeting", "question"],
+    ["--json", "hi", "greeting", "question"],
+])
+def test_decide_flags_can_sit_between_the_options(heard, argv):
+    assert main(["decide", *argv]) == 0
+    assert heard == {"texts": ["hi"], "options": ["greeting", "question"]}
+
+
+def test_an_unknown_flag_is_still_an_error(heard, capsys):
+    with pytest.raises(SystemExit) as e:
+        main(["decide", "hi", "a", "--nope", "b"])
+    assert e.value.code == EXIT_USAGE
+    assert "--nope" in capsys.readouterr().err
+
+
+def test_piped_text_without_dash_gets_a_warning(heard, monkeypatch, capsys):
+    """`echo text | yn decide a b c` would judge "a"; say so instead of staying quiet."""
+    import yn.cli
+
+    monkeypatch.setattr(yn.cli, "_stdin_has_data", lambda: True)
+    main(["decide", "billing", "shipping", "technical"])
+    assert "stdin ignored" in capsys.readouterr().err
+
+
+def test_no_warning_when_the_text_comes_from_stdin(heard, monkeypatch, capsys):
+    import yn.cli
+
+    monkeypatch.setattr(yn.cli, "_stdin_has_data", lambda: True)
+    monkeypatch.setattr("sys.stdin", io.StringIO("card charged twice"))
+    main(["decide", "-", "billing", "shipping"])
+    assert "stdin ignored" not in capsys.readouterr().err
+    assert heard["texts"] == ["card charged twice"]
+
+
+def test_no_warning_from_a_terminal(heard, monkeypatch, capsys):
+    import yn.cli
+
+    monkeypatch.setattr(yn.cli, "_stdin_has_data", lambda: False)
+    main(["decide", "hi", "a", "b"])
+    assert "stdin ignored" not in capsys.readouterr().err

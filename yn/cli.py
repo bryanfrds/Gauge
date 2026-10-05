@@ -2,7 +2,7 @@
 
     yn check "This email is spam." "You won a free iPhone!"
     yn decide "My card was charged twice" billing shipping technical
-    echo "My card was charged twice" | yn decide -o billing -o shipping -o technical
+    echo "My card was charged twice" | yn decide - billing shipping technical
     yn check "This is urgent." --lines < subjects.txt
     yn route "Fix the typo in the README title"        # which model should do this?
 
@@ -63,6 +63,17 @@ def _read_inputs(text: str | None, lines: bool) -> list[str]:
     return inputs
 
 
+def _stdin_has_data() -> bool:
+    """True when stdin is a pipe or a file, not a terminal or /dev/null."""
+    import stat
+
+    try:
+        mode = os.fstat(sys.stdin.fileno()).st_mode
+    except (OSError, ValueError, AttributeError):
+        return False
+    return stat.S_ISFIFO(mode) or stat.S_ISREG(mode)
+
+
 def _decide_args(args) -> None:
     """Split `yn decide TEXT OPTION OPTION...` into text and options.
 
@@ -78,8 +89,14 @@ def _decide_args(args) -> None:
     else:
         if len(words) < 3:
             raise InputError('give the text, then at least two options: '
-                             'yn decide "hi" greeting question')
+                             'yn decide "hi" greeting question (or - as the text to '
+                             'read it from stdin)')
         args.text, args.options = words[0], words[1:]
+        if args.text != "-" and _stdin_has_data():
+            # Dropping -o from an old `... | yn decide -o a -o b` command would
+            # otherwise judge the first option as the text, without a word.
+            print("yn: warning: stdin ignored; the first argument is the text. "
+                  "Use - as the text to read it from stdin.", file=sys.stderr)
     if args.text == "-":
         args.text = None
 
@@ -100,7 +117,7 @@ def _parser() -> argparse.ArgumentParser:
     d = sub.add_parser("decide", parents=[common], help="pick the best option for the text")
     d.add_argument("-o", "--option", action="append", dest="options",
                    help="an option; repeat for each. Or list the options after the text.")
-    d.add_argument("words", nargs="*", metavar="text [option ...]",
+    d.add_argument("words", nargs="*", metavar="TEXT_AND_OPTIONS",
                    help='the text, then its options: yn decide "hi" greeting question. '
                         'Use - for the text to read it from stdin.')
 
@@ -142,8 +159,24 @@ def _export_onnx(args) -> int:
     return 0
 
 
+def _parse(argv: list[str] | None):
+    """parse_args, except decide's options may sit on either side of a flag.
+
+    argparse stops a list of positionals at the first flag, so `yn decide hi a --json b`
+    would leave "b" unrecognized. Words left over like that are more options.
+    """
+    parser = _parser()
+    args, extra = parser.parse_known_args(argv)
+    if extra:
+        if args.cmd == "decide" and not any(e.startswith("-") and e != "-" for e in extra):
+            args.words += extra
+        else:
+            parser.error(f"unrecognized arguments: {' '.join(extra)}")
+    return args
+
+
 def main(argv: list[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
+    args = _parse(argv)
     if args.cmd == "export-onnx":
         try:
             return _export_onnx(args)
