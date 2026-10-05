@@ -49,7 +49,7 @@ class FakeModel:
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch):
     for var in ("YN_MODEL", "YN_THRESHOLD", "YN_DEVICE", "YN_VERBOSE", "YN_ROUTES",
-                "YN_BACKEND", "YN_ONNX_DIR", "YN_ONNX_THREADS"):
+                "YN_BACKEND", "YN_ONNX_DIR", "YN_ONNX_THREADS", "YN_IDLE_UNLOAD"):
         monkeypatch.delenv(var, raising=False)
 
 

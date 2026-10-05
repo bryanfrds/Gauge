@@ -14,7 +14,9 @@ from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import ConfigDict
 from typing_extensions import TypedDict  # pydantic needs this one before Python 3.12
 
-from yn.model import InputError, get_decider
+from yn.model import InputError
+from yn.model import get_decider as _in_process_decider
+from yn.worker import WorkerDecider, env_idle_unload
 from yn.route import route_many
 
 WHEN_TO_USE = (
@@ -107,17 +109,38 @@ def yn_route_batch(tasks: list[str], routes: list[Route] | None = None) -> dict:
     return {"results": [r.to_dict() for r in route_many(get_decider(), tasks, routes)]}
 
 
+# Set by main(): the model's child process, unless YN_IDLE_UNLOAD=0.
+_worker: WorkerDecider | None = None
+
+
+def get_decider():
+    """What the tools call. A child process that stops when idle, by default."""
+    return _worker if _worker is not None else _in_process_decider()
+
+
 def _warm_up() -> None:
     try:
-        get_decider().load()
+        _in_process_decider().load()
     except Exception as e:  # surfaced again on the first tool call
         print(f"yn-mcp: model load failed: {e}", file=sys.stderr)
 
 
 def main() -> None:
-    # Load the model in the background so the MCP handshake isn't delayed.
-    threading.Thread(target=_warm_up, daemon=True).start()
-    mcp.run(transport="stdio")
+    global _worker
+    idle = env_idle_unload()
+    if idle:
+        # Nothing is loaded until the first call, and the model's process stops
+        # after `idle` quiet seconds, so an open chat holds no model memory.
+        _worker = WorkerDecider(idle)
+    else:
+        # Kept loaded for the whole chat, so load now, in the background, and the
+        # MCP handshake isn't delayed.
+        threading.Thread(target=_warm_up, daemon=True).start()
+    try:
+        mcp.run(transport="stdio")
+    finally:
+        if _worker is not None:
+            _worker.stop()
 
 
 if __name__ == "__main__":
