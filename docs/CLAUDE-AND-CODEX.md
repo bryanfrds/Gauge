@@ -106,8 +106,11 @@ routing) and when not to (reasoning, facts, maths, writing).
 yn check "This email is spam." "You won a free iPhone, click here!"
 # true	0.99
 
-echo "My card was charged twice" | yn decide -o billing -o shipping -o technical
+yn decide "My card was charged twice" billing shipping technical   # text, then options
 # billing	0.98
+
+echo "My card was charged twice" | yn decide - billing shipping technical   # - reads stdin
+yn decide -o "Needs a human." -o "Bot can answer." "text"   # -o for options with spaces
 
 yn route "Fix the typo in the README title"
 # claude-haiku-4-5	0.90
