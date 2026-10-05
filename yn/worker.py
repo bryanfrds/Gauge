@@ -5,7 +5,7 @@ inside the server process doesn't give the memory back: ONNX Runtime keeps what 
 allocated (measured: 565 MB in use, 483 MB still held after dropping the session).
 A process that exits gives back everything, so the model lives in a child process
 that is stopped after `idle_unload` quiet seconds and started again on the next call.
-Measured cost of that restart with the ONNX backend: about a second.
+Measured cost of that restart with the ONNX backend: 0.4 to 1 second.
 """
 
 from __future__ import annotations
@@ -38,13 +38,28 @@ def env_idle_unload() -> float | None:
     return value or None
 
 
+def _send(conn, result) -> None:
+    try:
+        conn.send(result)
+    except Exception as e:  # an exception that won't pickle
+        conn.send((False, RuntimeError(f"{type(e).__name__}: {e}")))
+
+
 def _serve(conn, factory: str) -> None:
     """Child process: build the decider, then answer calls until told to stop."""
     # stdout belongs to the MCP protocol in the parent; a stray print from a library
-    # here must not land in it.
+    # here must not land in it. (Anything printed while multiprocessing re-imports
+    # the parent's main module, before this line, would still reach it; nothing does.)
     os.dup2(2, 1)
-    module, _, name = factory.partition(":")
-    decider = getattr(importlib.import_module(module), name)()
+    try:
+        module, _, name = factory.partition(":")
+        decider = getattr(importlib.import_module(module), name)()
+    except Exception as e:
+        # A setup problem (bad YN_THRESHOLD, model missing). Report it on every call
+        # instead of dying, so the caller sees the real cause, not "stopped unexpectedly".
+        setup_error = e
+    else:
+        setup_error = None
     while True:
         try:
             msg = conn.recv()
@@ -52,15 +67,15 @@ def _serve(conn, factory: str) -> None:
             return
         if msg is None:
             return
+        if setup_error is not None:
+            _send(conn, (False, setup_error))
+            continue
         method, args = msg
         try:
             result = (True, getattr(decider, method)(*args))
         except Exception as e:
             result = (False, e)
-        try:
-            conn.send(result)
-        except Exception as e:  # an exception that won't pickle
-            conn.send((False, RuntimeError(f"{type(e).__name__}: {e}")))
+        _send(conn, result)
 
 
 class WorkerDecider:
@@ -94,6 +109,9 @@ class WorkerDecider:
                 raise RuntimeError(
                     "the yn model process stopped unexpectedly; the next call starts a new one"
                 ) from None
+            except Exception as e:  # an error that pickled but won't unpickle here
+                raise RuntimeError(f"the yn model process sent back an unreadable error: "
+                                   f"{type(e).__name__}: {e}") from None
             finally:
                 self._used_locked()
         if ok:
@@ -133,15 +151,35 @@ class WorkerDecider:
 
     def _stop_if_idle(self) -> None:
         with self._lock:
-            # A timer can fire just as a call starts; that call set a newer one.
-            if time.monotonic() - self._last_used >= self.idle_unload:
+            if threading.current_thread() is not self._timer:
+                return  # a call since this timer started has set a newer one
+            if not self.running:
+                return
+            idle_for = time.monotonic() - self._last_used
+            if idle_for >= self.idle_unload:
                 self._stop_locked()
+                return
+            # Woke early. The timer waits on the wall clock but idle time is measured
+            # on the monotonic clock, which pauses while a Mac sleeps, so after a sleep
+            # the two disagree. Wait out the rest rather than never stopping.
+            self._timer = threading.Timer(self.idle_unload - idle_for, self._stop_if_idle)
+            self._timer.daemon = True
+            self._timer.start()
 
-    def stop(self) -> None:
-        with self._lock:
+    def stop(self, wait: float = 10.0) -> None:
+        """Stop the model process. If a call is stuck for longer than `wait` seconds,
+        kill the process anyway, so the server can still exit."""
+        if not self._lock.acquire(timeout=wait):
+            proc = self._proc
+            if proc is not None:
+                proc.kill()  # the stuck call then fails and tidies up
+            return
+        try:
             if self._timer is not None:
                 self._timer.cancel()
             self._stop_locked()
+        finally:
+            self._lock.release()
 
     def check(self, text, claim):
         return self._call("check", text, claim)

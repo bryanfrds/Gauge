@@ -30,3 +30,27 @@ class FakeDecider:
     def check_statements(self, statements):
         if any(len(s) > 10 for s in statements):
             raise InputError("a claim or option is too long")
+
+
+class BrokenSetup:
+    """A decider whose construction fails, like one with a bad YN_THRESHOLD."""
+
+    def __init__(self):
+        raise RuntimeError("YN_THRESHOLD must be a number from 0 to 1, got 'high'")
+
+
+class OddError(Exception):
+    """Pickles, but can't be rebuilt from its args in the parent."""
+
+    def __init__(self, a, b):
+        super().__init__(f"{a}/{b}")
+
+
+class Slow(FakeDecider):
+    def check(self, text, claim):
+        if text == "odd":
+            raise OddError(1, 2)
+        if text == "hang":
+            import time
+            time.sleep(60)
+        return super().check(text, claim)

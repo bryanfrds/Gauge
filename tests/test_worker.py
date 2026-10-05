@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import threading
 import time
 
 import pytest
@@ -83,8 +84,10 @@ def test_steady_use_keeps_the_same_process():
 
 def test_a_timer_from_before_the_last_call_leaves_the_process_running(worker):
     worker.check("t", "c")
+    current = worker._timer
     worker._stop_if_idle()                   # an old timer firing late
     assert worker.running
+    assert worker._timer is current          # and doesn't start a second countdown
 
 
 def test_a_crashed_process_is_reported_and_replaced(worker):
@@ -133,6 +136,55 @@ def test_a_process_killed_between_calls_is_replaced(worker):
     worker._proc.kill()
     worker._proc.join()
     assert worker.check("t", "c").answer == "true"
+
+
+
+def test_a_timer_that_wakes_early_waits_out_the_rest(worker):
+    """After a Mac sleep the timer can wake before the idle time has passed on the
+    clock idle time is measured with. It must try again, not give up."""
+    worker.idle_unload = 0.3
+    worker.check("t", "c")
+    worker._timer.cancel()
+    worker._last_used = time.monotonic()           # "used just now", as seen on waking
+    worker._timer = threading.Timer(0, worker._stop_if_idle)
+    worker._timer.start()                           # fires early
+    assert wait_for(lambda: not worker.running, 3)
+
+
+def test_a_setup_error_reaches_the_caller():
+    """A bad setting should be reported as itself, on every call, not as a crash."""
+    w = WorkerDecider(60, factory="fake_worker_decider:BrokenSetup")
+    try:
+        for _ in range(2):
+            with pytest.raises(RuntimeError, match="YN_THRESHOLD"):
+                w.check("t", "c")
+        assert w.running                            # one process, not one per retry
+    finally:
+        w.stop()
+
+
+def test_an_error_that_cannot_be_rebuilt_is_still_reported():
+    w = WorkerDecider(60, factory="fake_worker_decider:Slow")
+    try:
+        with pytest.raises(RuntimeError, match="unreadable error"):
+            w.check("odd", "c")
+        assert w.check("t", "c").answer == "true"
+    finally:
+        w.stop()
+
+
+def test_stop_gives_up_waiting_for_a_stuck_call_and_kills_it():
+    w = WorkerDecider(60, factory="fake_worker_decider:Slow")
+    w.check("t", "c")
+    caller = threading.Thread(target=lambda: pytest.raises(RuntimeError, w.check, "hang", "c"))
+    caller.start()
+    time.sleep(0.2)                                 # the call is now stuck in the child
+    start = time.monotonic()
+    w.stop(wait=0.3)
+    assert time.monotonic() - start < 2
+    caller.join(5)
+    assert not caller.is_alive()                    # the stuck call failed and returned
+    assert not w.running
 
 
 @pytest.fixture
