@@ -134,3 +134,36 @@ def test_a_process_killed_between_calls_is_replaced(worker):
     worker._proc.join()
     assert worker.check("t", "c").answer == "true"
 
+
+@pytest.fixture
+def server(monkeypatch):
+    """mcp_server.main() with the protocol loop and warm-up thread stubbed out."""
+    from yn import mcp_server
+
+    ran: list = []
+    warmed: list = []
+    monkeypatch.setattr(mcp_server.mcp, "run", lambda **kw: ran.append(mcp_server.get_decider()))
+    monkeypatch.setattr(mcp_server.threading, "Thread", lambda target, daemon: type(
+        "T", (), {"start": lambda self: warmed.append(target)})())
+    monkeypatch.setattr(mcp_server, "_worker", None)
+    return mcp_server, ran, warmed
+
+
+def test_server_answers_from_a_child_process_by_default(server, monkeypatch):
+    mcp_server, ran, warmed = server
+    monkeypatch.delenv("YN_IDLE_UNLOAD", raising=False)
+    stopped = []
+    monkeypatch.setattr(WorkerDecider, "stop", lambda self: stopped.append(self))
+    mcp_server.main()
+    assert isinstance(ran[0], WorkerDecider)
+    assert ran[0].idle_unload == DEFAULT_IDLE_UNLOAD
+    assert warmed == []                      # nothing loaded before it's asked
+    assert stopped == [ran[0]]               # and the child is stopped on exit
+
+
+def test_server_with_idle_unload_off_keeps_the_model_in_process(server, monkeypatch):
+    mcp_server, ran, warmed = server
+    monkeypatch.setenv("YN_IDLE_UNLOAD", "0")
+    mcp_server.main()
+    assert not isinstance(ran[0], WorkerDecider)
+    assert warmed == [mcp_server._warm_up]
