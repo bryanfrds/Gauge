@@ -41,7 +41,7 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from yn.model import DEFAULT_MODEL  # noqa: E402
+from yn.model import DEFAULT_MODEL, DEFAULT_THRESHOLD  # noqa: E402
 
 MAX_CHARS = 2000  # long posts: the opening carries the sentiment, and it keeps steps fast
 
@@ -52,16 +52,26 @@ def read_rows(path: str, text_cols: list[str], label_col: str, labels: list[str]
     with open(path, newline="") as f:
         for r in csv.DictReader(f):
             parts = [r.get(c) or "" for c in text_cols]
-            # A title the body already contains is said once.
+            # A title the body opens with is said once. Only a prefix counts: a
+            # short title like "Fees" can appear anywhere in a body and still say
+            # something the body doesn't lead with.
             text = "\n".join(p for i, p in enumerate(parts)
-                             if p and not any(p in q for q in parts[i + 1:]))
+                             if p and not any(q.startswith(p) for q in parts[i + 1:]))
             if text.strip() and r.get(label_col) in labels:
                 rows.append({**r, "_text": text[:MAX_CHARS], "_label": r[label_col]})
     return rows
 
 
+def lr_factor(step: int, steps: int, warmup: int) -> float:
+    """Linear warm-up to 1, then linear decay towards 0 at the last step."""
+    return min((step + 1) / warmup, max(0.0, (steps - step) / max(1, steps - warmup)))
+
+
 def statements(row: dict, labels: list[str], template: str) -> list[str]:
-    return [template.format(**row, label=lab, label_lower=lab.lower()) for lab in labels]
+    # {label} is the option being scored, even when the CSV has a "label" column too
+    # (the default --label-col): that column holds the right answer, not the option.
+    return [template.format_map({**row, "label": lab, "label_lower": lab.lower()})
+            for lab in labels]
 
 
 def choice_logits(model, tok, batch, labels, template, device, entail, max_len):
@@ -78,7 +88,7 @@ def choice_logits(model, tok, batch, labels, template, device, entail, max_len):
 
 @torch.inference_mode()
 def evaluate(model, tok, rows, labels, template, device, entail, max_len,
-             threshold=0.85) -> dict:
+             threshold=DEFAULT_THRESHOLD) -> dict:
     model.eval()
     preds, confs = [], []
     for i in range(0, len(rows), 16):
@@ -101,6 +111,13 @@ def evaluate(model, tok, rows, labels, template, device, entail, max_len,
     }
 
 
+def _at_least_one(value: str) -> int:
+    n = int(value)
+    if n < 1:
+        raise argparse.ArgumentTypeError("must be 1 or more")
+    return n
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--data", required=True, help="labelled CSV")
@@ -115,7 +132,7 @@ def main() -> None:
     p.add_argument("--base", default=DEFAULT_MODEL)
     p.add_argument("--val-frac", type=float, default=0.15)
     p.add_argument("--max-rows", type=int, help="use only this many rows (quick runs)")
-    p.add_argument("--epochs", type=int, default=1)
+    p.add_argument("--epochs", type=_at_least_one, default=1)
     p.add_argument("--batch", type=int, default=8, help="texts per step (x labels pairs)")
     p.add_argument("--max-len", type=int, default=256)
     p.add_argument("--lr", type=float, default=2e-5)
@@ -136,6 +153,18 @@ def main() -> None:
     random.Random(args.seed).shuffle(rows)
     if args.max_rows:
         rows = rows[:args.max_rows]
+    if not rows:
+        sys.exit(f"no usable rows in {args.data} (labels {args.labels}, "
+                 f"label column {args.label_col!r})")
+    # Check the template against the data now, not after the model has loaded.
+    try:
+        hyps = statements(rows[0], args.labels, args.template)
+    except KeyError as e:
+        sys.exit(f"--template uses {e}, which is not a column in {args.data}")
+    if not all(h.rstrip()[-1:] in ".!?" for h in hyps):
+        # decide() wraps a statement without end punctuation in its own template, so
+        # the model would be asked something other than what it was trained on.
+        sys.exit("--template must end in . ! or ? so decide() uses it word for word")
     n_val = max(1, int(len(rows) * args.val_frac))
     val, train = rows[:n_val], rows[n_val:]
     print(f"train {len(train)}  val {len(val)}  device {device}  "
@@ -168,8 +197,7 @@ def main() -> None:
     steps = args.epochs * math.ceil(len(train) / args.batch)
     opt = torch.optim.AdamW(trainable, lr=args.lr, weight_decay=0.01)
     warmup = max(1, steps // 10)
-    sched = torch.optim.lr_scheduler.LambdaLR(
-        opt, lambda s: min((s + 1) / warmup, max(0.0, (steps - s) / max(1, steps - warmup))))
+    sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: lr_factor(s, steps, warmup))
     loss_fn = torch.nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
 
     best, step, t0 = None, 0, time.time()
