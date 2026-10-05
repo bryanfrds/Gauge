@@ -37,7 +37,11 @@ YN_MODEL=models/my-sentiment yn decide "<post>" \
 
 Each text is paired with one statement per label. The model's entailment score for
 each pair is softmaxed across the labels, and cross-entropy pushes up the right one.
-That's the same scoring `decide` uses, so training and use can't drift apart.
+That's the same scoring `decide` uses. Two things differ at use time: `decide` reads
+up to 512 tokens where training reads `--max-len` (128 above) and the first 2,000
+characters, and the template must end in `.`, `!` or `?` so `decide` uses the
+statements word for word (the script refuses one that doesn't). Label smoothing of
+0.1 (`--label-smoothing`) keeps the trained confidence from saturating.
 
 ## Memory and speed on a laptop
 
