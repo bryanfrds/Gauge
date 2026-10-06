@@ -175,5 +175,5 @@ to be the open **general-purpose** one. See [Related work](docs/SPEC.md#9-relate
 
 Gauge is created and maintained by [bryanfrds](https://github.com/bryanfrds).
 Copyright 2026 bryanfrds. Released under the [Apache 2.0 licence](LICENSE): you're
-welcome to use, change and share it, as long as you keep the [NOTICE](NOTICE) file
-and the copyright notices that credit the original author.
+welcome to use, change and share it, as long as you follow its conditions, which
+include keeping the attribution in [NOTICE](NOTICE) and the copyright notices.
