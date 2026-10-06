@@ -31,3 +31,9 @@ def test_prepare_turns_number_labels_into_names_once(tmp_path, monkeypatch):
 def test_labels_and_template_suit_decide():
     assert set(tf.NAMES.values()) == set(tf.LABELS)
     assert tf.TEMPLATE.rstrip()[-1] in ".!?"         # so decide() uses it word for word
+
+
+def test_data_and_model_land_in_git_ignored_folders():
+    assert tf.DATA.relative_to(tf.ROOT).parts[0] == "data"
+    ignored = (tf.ROOT / ".gitignore").read_text().split()
+    assert "data/" in ignored and "models/" in ignored
