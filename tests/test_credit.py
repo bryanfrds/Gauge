@@ -21,10 +21,16 @@ def test_version_names_the_author(capsys):
     assert "bryanfrds" in out and gauge.__version__ in out
 
 
-def test_notice_file_credits_the_author_and_says_it_must_be_kept():
+def test_notice_file_credits_the_author():
     notice = (ROOT / "NOTICE").read_text()
     assert "Copyright 2026 bryanfrds" in notice
-    assert "must keep this NOTICE" in notice
+    assert "Apache License, Version 2.0" in notice
+
+
+def test_the_claude_and_codex_tool_credits_the_author():
+    from gauge.mcp_server import mcp
+
+    assert "by bryanfrds" in mcp.instructions
 
 
 @pytest.mark.parametrize("path", sorted(
