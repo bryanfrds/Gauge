@@ -102,7 +102,11 @@ def _decide_args(args) -> None:
 
 
 def _parser() -> argparse.ArgumentParser:
-    p = _Parser(prog="gauge", description="Fast true/false and pick-one decisions.")
+    from gauge import CREDIT
+
+    p = _Parser(prog="gauge", description="Fast true/false and pick-one decisions.",
+                epilog=CREDIT)
+    p.add_argument("--version", action="version", version=CREDIT)
     common = _Parser(add_help=False)
     common.add_argument("--json", action="store_true", help="print full JSON results")
     common.add_argument("--lines", action="store_true", help="treat each input line separately")

@@ -28,7 +28,7 @@ WHEN_TO_USE = (
 
 mcp = MCPServer(
     "gauge",
-    instructions="Gauge is a small local decision model. " + WHEN_TO_USE,
+    instructions="Gauge is a small local decision model, by bryanfrds. " + WHEN_TO_USE,
     log_level="WARNING",
 )
 
