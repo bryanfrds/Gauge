@@ -4,13 +4,13 @@
     .venv/bin/python train/examples/twitter_financial.py --prepare-only
 
 Data: Twitter Financial News Sentiment (zeroshot/twitter-financial-news-sentiment on
-Hugging Face, MIT licence): 11,932 finance tweets labelled Bearish, Bullish or Neutral,
+Hugging Face, MIT licence): 11,931 finance tweets labelled Bearish, Bullish or Neutral,
 already split into train (9,543) and validation (2,388). YN trains on the train split
 and is scored on the validation split, which it never sees.
 
 The data goes to data/twitter-financial/ and the model to models/twitter-financial/,
-both git-ignored. Training takes about 40 minutes on a 16 GB Apple Silicon Mac with the
-settings below and peaks around 5 GB; see docs/TRAINING.md.
+both git-ignored. Training took 21 minutes on a 16 GB Apple Silicon Mac with the
+settings below; see docs/TRAINING.md for memory.
 """
 
 from __future__ import annotations

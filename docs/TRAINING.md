@@ -93,7 +93,7 @@ public data and reruns with one command:
 ```
 
 It downloads Twitter Financial News Sentiment (`zeroshot/twitter-financial-news-sentiment`
-on Hugging Face, MIT licence): 11,932 finance tweets labelled Bearish, Bullish or
+on Hugging Face, MIT licence): 11,931 finance tweets labelled Bearish, Bullish or
 Neutral, already split into train and validation. YN trains on the 9,543 train
 tweets (5% held back to pick the best epoch), using the statement *"This tweet is
 {bearish / bullish / neutral} about the market."* It is scored on all 2,388
@@ -109,5 +109,7 @@ When the trained model is at least 85% sure (93% of tweets), it is right 94% of 
 time. Untrained, YN read many neutral headlines as bullish or bearish (518 of 1,566).
 Training mostly taught it what "neutral" means for this data.
 
-Measured on a 16 GB Apple Silicon Mac, 2026-10-06, with the script's settings:
-`--batch 4 --max-len 128 --checkpointing`, about 3.2 GB peak.
+Measured on a 16 GB Apple Silicon Mac, 2026-10-06, with the script's settings
+(`--batch 4 --max-len 128 --checkpointing`). The training process used 3.2 GB when
+checked mid-run (macOS `footprint`, one reading, not a recorded peak). Expect up to
+the 4.8 GB in the table above: that was a peak, on longer posts.
