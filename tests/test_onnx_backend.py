@@ -629,7 +629,7 @@ def test_sweep_leaves_a_temp_dir_another_export_is_still_writing(cache_root):
     assert running.exists()
 
 
-def test_sweep_never_runs_outside_yns_own_cache(cache_root, tmp_path):
+def test_sweep_never_runs_outside_gauges_own_cache(cache_root, tmp_path):
     """--out can sit in a user's home folder; their .export-* is not ours to delete."""
     from gauge.onnx_backend import _sweep_stale_temp_dirs
 
