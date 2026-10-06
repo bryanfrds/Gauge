@@ -5,6 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "gauge-model"
 version = "0.0.1"
+authors = [{ name = "bryanfrds" }]
 description = "Small, fast decision model: answers true/false or picks from a list, with confidence."
 readme = "README.md"
 license = "Apache-2.0"
@@ -18,6 +19,9 @@ dependencies = [
     "numpy",
     "typing_extensions",
 ]
+
+[project.urls]
+Homepage = "https://github.com/bryanfrds/Gauge"
 
 [project.optional-dependencies]
 dev = ["pytest"]

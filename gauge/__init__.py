@@ -1,8 +1,12 @@
+# Copyright 2026 bryanfrds (https://github.com/bryanfrds)
+# SPDX-License-Identifier: Apache-2.0
 """Gauge: a small decision model. Answers true/false or picks from a list, with confidence."""
 
 from gauge.model import Decider, Decision, get_decider
 
 __version__ = "0.0.1"
+__author__ = "bryanfrds"
+CREDIT = f"Gauge {__version__}, by bryanfrds (https://github.com/bryanfrds/Gauge)"
 
 
 def check(text: str, claim: str) -> Decision:

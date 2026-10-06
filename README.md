@@ -173,4 +173,7 @@ to be the open **general-purpose** one. See [Related work](docs/SPEC.md#9-relate
 
 ## License
 
-[Apache 2.0](LICENSE)
+Gauge is created and maintained by [bryanfrds](https://github.com/bryanfrds).
+Copyright 2026 bryanfrds. Released under the [Apache 2.0 licence](LICENSE): you're
+welcome to use, change and share it, as long as you follow its conditions, which
+include keeping the attribution in [NOTICE](NOTICE) and the copyright notices.

@@ -1,3 +1,5 @@
+# Copyright 2026 bryanfrds (https://github.com/bryanfrds)
+# SPDX-License-Identifier: Apache-2.0
 """Scoring engine.
 
 Stand-in version: uses an existing open zero-shot NLI model (natural-language
