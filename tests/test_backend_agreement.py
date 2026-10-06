@@ -6,9 +6,9 @@ needs both backends plus an export on disk — far too slow for the normal suite
 
 Opt in with:
 
-    YN_SLOW_TESTS=1 python -m pytest tests/test_backend_agreement.py
+    GAUGE_SLOW_TESTS=1 python -m pytest tests/test_backend_agreement.py
 
-It downloads the model on first run and needs `yn export-onnx` to have been run.
+It downloads the model on first run and needs `gauge export-onnx` to have been run.
 """
 
 from __future__ import annotations
@@ -17,30 +17,30 @@ import os
 
 import pytest
 
-from yn.model import DEFAULT_MODEL, Decider
-from yn.onnx_backend import is_exported
+from gauge.model import DEFAULT_MODEL, Decider
+from gauge.onnx_backend import is_exported
 
-# conftest's env-cleaning fixture strips YN_ONNX_DIR and YN_MODEL from every test, so
+# conftest's env-cleaning fixture strips GAUGE_ONNX_DIR and GAUGE_MODEL from every test, so
 # capture them at import time and put them back for this module only.
-_ONNX_DIR = os.environ.get("YN_ONNX_DIR")
-_MODEL = os.environ.get("YN_MODEL")
+_ONNX_DIR = os.environ.get("GAUGE_ONNX_DIR")
+_MODEL = os.environ.get("GAUGE_MODEL")
 
 
 @pytest.fixture(autouse=True)
 def _restore_export_location(monkeypatch):
     if _ONNX_DIR:
-        monkeypatch.setenv("YN_ONNX_DIR", _ONNX_DIR)
+        monkeypatch.setenv("GAUGE_ONNX_DIR", _ONNX_DIR)
     if _MODEL:
-        monkeypatch.setenv("YN_MODEL", _MODEL)
+        monkeypatch.setenv("GAUGE_MODEL", _MODEL)
 
 # The bound README.md and docs/ONNX.md state. Raise it only alongside those.
 DOCUMENTED_BOUND = 0.002
 
 pytestmark = [
-    pytest.mark.skipif(not os.environ.get("YN_SLOW_TESTS"),
-                       reason="set YN_SLOW_TESTS=1 (loads the real model)"),
-    pytest.mark.skipif(not is_exported(os.environ.get("YN_MODEL") or DEFAULT_MODEL),
-                       reason="no ONNX export; run: yn export-onnx"),
+    pytest.mark.skipif(not os.environ.get("GAUGE_SLOW_TESTS"),
+                       reason="set GAUGE_SLOW_TESTS=1 (loads the real model)"),
+    pytest.mark.skipif(not is_exported(os.environ.get("GAUGE_MODEL") or DEFAULT_MODEL),
+                       reason="no ONNX export; run: gauge export-onnx"),
 ]
 
 SHORT = [

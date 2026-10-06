@@ -1,4 +1,4 @@
-"""Unit tests for the `yn` CLI with a fake model (no weights loaded)."""
+"""Unit tests for the `gauge` CLI with a fake model (no weights loaded)."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ import json
 
 import pytest
 
-from yn.cli import EXIT_ERROR, EXIT_FALSE, EXIT_UNSURE, EXIT_USAGE, _decide_args, _parser, main
-from yn.model import DEFAULT_MODEL
+from gauge.cli import EXIT_ERROR, EXIT_FALSE, EXIT_UNSURE, EXIT_USAGE, _decide_args, _parser, main
+from gauge.model import DEFAULT_MODEL
 
 CLAIM = "This email is spam."
 
@@ -82,17 +82,17 @@ def test_decide_with_o_still_reads_stdin_when_no_text_is_given():
 @pytest.mark.parametrize("argv", [["txt"], ["txt", "only-one"], []])
 def test_decide_without_enough_options_says_how_to_ask(argv, capsys):
     assert main(["decide", *argv]) == EXIT_USAGE  # not 2, which means "unsure"
-    assert 'yn decide "hi" greeting question' in capsys.readouterr().err
+    assert 'gauge decide "hi" greeting question' in capsys.readouterr().err
 
 
 def test_decide_refuses_mixing_o_with_listed_options(capsys):
-    """Otherwise "yn decide -o a hi b" would quietly treat "hi b" as... what?"""
+    """Otherwise "gauge decide -o a hi b" would quietly treat "hi b" as... what?"""
     assert main(["decide", "-o", "a", "-o", "b", "hi", "c"]) == EXIT_USAGE
     assert "one quoted argument" in capsys.readouterr().err
 
 
 def test_decide_listed_options_reach_the_model(monkeypatch, capsys):
-    from yn.model import Decider, Decision
+    from gauge.model import Decider, Decision
 
     seen = {}
 
@@ -214,7 +214,7 @@ def test_json_output_one_object_per_input(check_p, stdin, capsys):
 
 
 def test_json_output_model_name(check_p, monkeypatch, capsys):
-    monkeypatch.setenv("YN_MODEL", "org/test-model")
+    monkeypatch.setenv("GAUGE_MODEL", "org/test-model")
     check_p("t", 0.9)
     main(["check", CLAIM, "t", "--json"])
     assert json.loads(capsys.readouterr().out)["model"] == "org/test-model"
@@ -279,7 +279,7 @@ def test_decide_answer_named_false_is_not_exit_1(fake_model, capsys):
 def test_empty_claim_exits_64_with_message(fake_model, capsys):
     assert main(["check", "   ", "text"]) == EXIT_USAGE == 64
     err = capsys.readouterr()
-    assert err.err == "yn: claim must be a non-empty string\n"
+    assert err.err == "gauge: claim must be a non-empty string\n"
     assert err.out == ""
 
 
@@ -296,12 +296,12 @@ def test_empty_stdin_exits_64(fake_model, stdin, capsys):
 
 def test_single_option_exits_64(fake_model, capsys):
     assert main(["decide", "-o", "only", "t"]) == 64
-    assert capsys.readouterr().err == "yn: options must have 2-50 items, got 1\n"
+    assert capsys.readouterr().err == "gauge: options must have 2-50 items, got 1\n"
 
 
 def test_duplicate_options_exits_64(fake_model, capsys):
     assert main(["decide", "-o", "a", "-o", "a ", "t"]) == 64
-    assert capsys.readouterr().err == "yn: options must be unique\n"
+    assert capsys.readouterr().err == "gauge: options must be unique\n"
 
 
 def test_usage_error_wins_over_exit_code_flag(fake_model, capsys):
@@ -314,16 +314,16 @@ def test_usage_error_wins_over_exit_code_flag(fake_model, capsys):
     (0.8496, "0.84"), (0.85, "0.85"), (0.29, "0.29"), (0.999, "0.99"), (1.0, "1.00"), (0.0, "0.00"),
 ])
 def test_two_places_rounds_down(conf, shown):
-    from yn.cli import _two_places
+    from gauge.cli import _two_places
     assert _two_places(conf) == shown
 
 
 @pytest.mark.parametrize("bad", ["abc", "1.5", "-0.1"])
 def test_bad_threshold_env_is_clear_error_not_traceback(fake_model, monkeypatch, capsys, bad):
-    monkeypatch.setenv("YN_THRESHOLD", bad)
+    monkeypatch.setenv("GAUGE_THRESHOLD", bad)
     assert main(["check", "This is spam.", "hello"]) == EXIT_ERROR
     err = capsys.readouterr().err
-    assert "YN_THRESHOLD must be a number from 0 to 1" in err
+    assert "GAUGE_THRESHOLD must be a number from 0 to 1" in err
     assert "Traceback" not in err
 
 
@@ -331,13 +331,13 @@ def test_unexpected_error_is_exit_3_not_false(fake_model, monkeypatch, capsys):
     # A crash must never look like "false" (exit 1) to a hook.
     def boom(self, texts, claim):
         raise OSError("model files missing")
-    monkeypatch.setattr("yn.model.Decider.check_many", boom)
+    monkeypatch.setattr("gauge.model.Decider.check_many", boom)
     assert main(["check", CLAIM, "hello", "--exit-code"]) == EXIT_ERROR
     assert "OSError: model files missing" in capsys.readouterr().err
 
 
 def test_broken_pipe_exits_quietly_not_false(check_p, monkeypatch):
-    # `yn ... | head -1`: the reader closes early. Must not exit 1 ("false").
+    # `gauge ... | head -1`: the reader closes early. Must not exit 1 ("false").
     import os
     import sys
 
@@ -393,7 +393,7 @@ def test_parse_export_onnx_takes_no_positional_text():
 @pytest.fixture
 def fake_export(monkeypatch, tmp_path):
     """Record calls to onnx_backend.export instead of exporting anything."""
-    from yn import onnx_backend
+    from gauge import onnx_backend
 
     calls = []
 
@@ -412,13 +412,13 @@ def test_export_onnx_uses_default_model(fake_export, capsys):
 
 
 def test_export_onnx_model_flag_wins_over_env(monkeypatch, fake_export):
-    monkeypatch.setenv("YN_MODEL", "from/env")
+    monkeypatch.setenv("GAUGE_MODEL", "from/env")
     assert main(["export-onnx", "--model", "from/flag"]) == 0
     assert fake_export == [("from/flag", None)]
 
 
 def test_export_onnx_falls_back_to_env_model(monkeypatch, fake_export):
-    monkeypatch.setenv("YN_MODEL", "from/env")
+    monkeypatch.setenv("GAUGE_MODEL", "from/env")
     assert main(["export-onnx"]) == 0
     assert fake_export == [("from/env", None)]
 
@@ -438,61 +438,61 @@ def test_export_onnx_prints_nothing_on_stdout(fake_export, capsys):
 def test_export_onnx_promises_auto_pickup_only_for_the_default_location(
     monkeypatch, tmp_path, capsys
 ):
-    """The export really is where YN will look, so the auto-pickup line is true."""
-    from yn import onnx_backend
+    """The export really is where Gauge will look, so the auto-pickup line is true."""
+    from gauge import onnx_backend
 
-    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    monkeypatch.setenv("GAUGE_ONNX_DIR", str(tmp_path))
     monkeypatch.setattr(onnx_backend, "export",
                         lambda model, out_dir=None: onnx_backend.export_dir(model))
     main(["export-onnx"])
-    assert "YN_BACKEND=torch" in capsys.readouterr().err
+    assert "GAUGE_BACKEND=torch" in capsys.readouterr().err
 
 
 def test_export_onnx_tells_you_how_to_use_an_out_directory(
     monkeypatch, tmp_path, capsys
 ):
-    """--out puts it somewhere YN won't look; the advice must actually lead there."""
+    """--out puts it somewhere Gauge won't look; the advice must actually lead there."""
     import re
 
-    from yn import onnx_backend
-    from yn.model import DEFAULT_MODEL
+    from gauge import onnx_backend
+    from gauge.model import DEFAULT_MODEL
 
     out = tmp_path / "elsewhere" / onnx_backend._slug(DEFAULT_MODEL)
     monkeypatch.setattr(onnx_backend, "export", lambda model, out_dir=None: out)
     main(["export-onnx", "--out", str(out)])
     err = capsys.readouterr().err
     assert "used automatically" not in err
-    value = re.search(r"YN_ONNX_DIR=(\S+)", err).group(1)
-    monkeypatch.setenv("YN_ONNX_DIR", value)
+    value = re.search(r"GAUGE_ONNX_DIR=(\S+)", err).group(1)
+    monkeypatch.setenv("GAUGE_ONNX_DIR", value)
     assert onnx_backend.export_dir(DEFAULT_MODEL) == out
 
 
 def test_export_onnx_says_a_wrongly_named_out_directory_must_be_renamed(
     monkeypatch, tmp_path, capsys
 ):
-    """YN looks in YN_ONNX_DIR/<slug>, so no setting reaches a folder named "m"."""
-    from yn import onnx_backend
-    from yn.model import DEFAULT_MODEL
+    """Gauge looks in GAUGE_ONNX_DIR/<slug>, so no setting reaches a folder named "m"."""
+    from gauge import onnx_backend
+    from gauge.model import DEFAULT_MODEL
 
     out = tmp_path / "elsewhere" / "m"
     monkeypatch.setattr(onnx_backend, "export", lambda model, out_dir=None: out)
     main(["export-onnx", "--out", str(out)])
     err = capsys.readouterr().err
-    assert "YN_ONNX_DIR=" not in err
+    assert "GAUGE_ONNX_DIR=" not in err
     assert str(out.parent / onnx_backend._slug(DEFAULT_MODEL)) in err
 
 
-def test_export_onnx_tells_you_to_set_yn_model_for_another_model(
+def test_export_onnx_tells_you_to_set_gauge_model_for_another_model(
     monkeypatch, tmp_path, capsys
 ):
-    from yn import onnx_backend
+    from gauge import onnx_backend
 
-    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    monkeypatch.setenv("GAUGE_ONNX_DIR", str(tmp_path))
     monkeypatch.setattr(onnx_backend, "export",
                         lambda model, out_dir=None: onnx_backend.export_dir(model))
     main(["export-onnx", "--model", "other/thing"])
     err = capsys.readouterr().err
-    assert "YN_MODEL=other/thing" in err
+    assert "GAUGE_MODEL=other/thing" in err
     assert "used automatically" not in err
 
 
@@ -502,7 +502,7 @@ def test_export_onnx_does_not_read_stdin(fake_export, monkeypatch):
 
 
 def test_export_onnx_missing_extra_is_a_clear_setup_error(monkeypatch, capsys):
-    from yn import onnx_backend
+    from gauge import onnx_backend
 
     def export(model, out_dir=None):
         raise ImportError("No module named 'onnxscript'")
@@ -510,14 +510,14 @@ def test_export_onnx_missing_extra_is_a_clear_setup_error(monkeypatch, capsys):
     monkeypatch.setattr(onnx_backend, "export", export)
     assert main(["export-onnx"]) == EXIT_ERROR
     err = capsys.readouterr().err
-    assert "pip install 'yn[export]'" in err
+    assert "pip install 'gauge-model[export]'" in err
     assert "onnxscript" in err
 
 
 @pytest.fixture
 def heard(monkeypatch):
     """What decide_many was asked, with the model stubbed out."""
-    from yn.model import Decider, Decision
+    from gauge.model import Decider, Decision
 
     seen = {}
 
@@ -548,18 +548,18 @@ def test_an_unknown_flag_is_still_an_error(heard, capsys):
 
 
 def test_piped_text_without_dash_gets_a_warning(heard, monkeypatch, capsys):
-    """`echo text | yn decide a b c` would judge "a"; say so instead of staying quiet."""
-    import yn.cli
+    """`echo text | gauge decide a b c` would judge "a"; say so instead of staying quiet."""
+    import gauge.cli
 
-    monkeypatch.setattr(yn.cli, "_stdin_has_data", lambda: True)
+    monkeypatch.setattr(gauge.cli, "_stdin_has_data", lambda: True)
     main(["decide", "billing", "shipping", "technical"])
     assert "stdin ignored" in capsys.readouterr().err
 
 
 def test_no_warning_when_the_text_comes_from_stdin(heard, monkeypatch, capsys):
-    import yn.cli
+    import gauge.cli
 
-    monkeypatch.setattr(yn.cli, "_stdin_has_data", lambda: True)
+    monkeypatch.setattr(gauge.cli, "_stdin_has_data", lambda: True)
     monkeypatch.setattr("sys.stdin", io.StringIO("card charged twice"))
     main(["decide", "-", "billing", "shipping"])
     assert "stdin ignored" not in capsys.readouterr().err
@@ -567,8 +567,8 @@ def test_no_warning_when_the_text_comes_from_stdin(heard, monkeypatch, capsys):
 
 
 def test_no_warning_from_a_terminal(heard, monkeypatch, capsys):
-    import yn.cli
+    import gauge.cli
 
-    monkeypatch.setattr(yn.cli, "_stdin_has_data", lambda: False)
+    monkeypatch.setattr(gauge.cli, "_stdin_has_data", lambda: False)
     main(["decide", "hi", "a", "b"])
     assert "stdin ignored" not in capsys.readouterr().err

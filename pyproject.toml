@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "yn-model"
+name = "gauge-model"
 version = "0.0.1"
 description = "Small, fast decision model: answers true/false or picks from a list, with confidence."
 readme = "README.md"
@@ -22,17 +22,17 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest"]
 # Running an exported model. Lighter and faster on CPU than torch; see
-# yn/onnx_backend.py for the measurements.
+# gauge/onnx_backend.py for the measurements.
 onnx = ["onnxruntime>=1.17", "tokenizers>=0.15"]
 # Producing the export. Needs torch as well, so it is not a deployment dependency.
 export = ["onnx>=1.16", "onnxscript>=0.1"]
 
 [project.scripts]
-yn = "yn.cli:main"
-yn-mcp = "yn.mcp_server:main"
+gauge = "gauge.cli:main"
+gauge-mcp = "gauge.mcp_server:main"
 
 [tool.setuptools]
-packages = ["yn"]
+packages = ["gauge"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

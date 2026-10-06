@@ -11,7 +11,7 @@ import math
 import numpy as np
 import pytest
 
-from yn.model import Decider
+from gauge.model import Decider
 
 NUM_LABELS = 3  # entailment + two others, so the entailment index actually matters
 
@@ -48,8 +48,8 @@ class FakeModel:
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch):
-    for var in ("YN_MODEL", "YN_THRESHOLD", "YN_DEVICE", "YN_VERBOSE", "YN_ROUTES",
-                "YN_BACKEND", "YN_ONNX_DIR", "YN_ONNX_THREADS", "YN_IDLE_UNLOAD"):
+    for var in ("GAUGE_MODEL", "GAUGE_THRESHOLD", "GAUGE_DEVICE", "GAUGE_VERBOSE", "GAUGE_ROUTES",
+                "GAUGE_BACKEND", "GAUGE_ONNX_DIR", "GAUGE_ONNX_THREADS", "GAUGE_IDLE_UNLOAD"):
         monkeypatch.delenv(var, raising=False)
 
 

@@ -1,6 +1,6 @@
-"""YN: a small decision model. Answers true/false or picks from a list, with confidence."""
+"""Gauge: a small decision model. Answers true/false or picks from a list, with confidence."""
 
-from yn.model import Decider, Decision, get_decider
+from gauge.model import Decider, Decision, get_decider
 
 __version__ = "0.0.1"
 

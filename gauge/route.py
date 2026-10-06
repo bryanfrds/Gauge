@@ -1,4 +1,4 @@
-"""Pick a model for a task (`yn route`).
+"""Pick a model for a task (`gauge route`).
 
 A route is a model plus a statement describing the tasks it suits. Routing is
 `Decider.decide_many` over those statements, with answers mapped back to model names.
@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import os
 
-from yn.model import MAX_OPTIONS, MAX_STATEMENT_CHARS, Decider, Decision, InputError
+from gauge.model import MAX_OPTIONS, MAX_STATEMENT_CHARS, Decider, Decision, InputError
 
 # Current Claude models, cheapest first. Statements are full sentences because the
 # stand-in model scores those far better than bare labels.
@@ -67,24 +67,24 @@ def read_routes_file(path: str) -> list[dict]:
 
 
 def default_routes() -> list[dict]:
-    """YN_ROUTES (a JSON file path) if set, else the built-in Claude routes.
+    """GAUGE_ROUTES (a JSON file path) if set, else the built-in Claude routes.
 
-    A bad YN_ROUTES file is a setup problem, so it raises RuntimeError, not InputError.
+    A bad GAUGE_ROUTES file is a setup problem, so it raises RuntimeError, not InputError.
     """
-    path = os.environ.get("YN_ROUTES")
+    path = os.environ.get("GAUGE_ROUTES")
     if not path:
         return DEFAULT_ROUTES
     try:
         return read_routes_file(path)
     except InputError as e:
-        raise RuntimeError(f"YN_ROUTES: {e}") from e
+        raise RuntimeError(f"GAUGE_ROUTES: {e}") from e
 
 
 def route_many(decider: Decider, tasks: list[str], routes: list[dict] | None = None,
                ) -> list[Decision]:
     """Pick a model for each task. `answer` and `scores` use model names.
 
-    Routes from YN_ROUTES are server config, so problems with them raise RuntimeError
+    Routes from GAUGE_ROUTES are server config, so problems with them raise RuntimeError
     (never InputError), and the caller isn't told its request was bad.
     """
     from_config = routes is None
@@ -93,7 +93,7 @@ def route_many(decider: Decider, tasks: list[str], routes: list[dict] | None = N
         decider.check_statements([when for _, when in pairs])
     except InputError as e:
         if from_config:
-            raise RuntimeError(f"YN_ROUTES: {e}") from e
+            raise RuntimeError(f"GAUGE_ROUTES: {e}") from e
         raise
     model_for = {when: model for model, when in pairs}
     results = decider.decide_many(tasks, [when for _, when in pairs])

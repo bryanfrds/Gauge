@@ -1,7 +1,7 @@
 """Scoring engine.
 
 Stand-in version: uses an existing open zero-shot NLI model (natural-language
-inference: "does this text support this statement?") until YN's own model is trained.
+inference: "does this text support this statement?") until Gauge's own model is trained.
 The inputs and outputs match the spec, so swapping the model changes nothing for
 callers.
 """
@@ -25,7 +25,7 @@ MAX_STATEMENT_CHARS = 1_000  # cheap first check, before tokenizing
 # checked in tokens as well as characters.
 MAX_STATEMENT_TOKENS = 400
 BATCH_SIZE = 16
-# "auto" prefers an ONNX export when one exists, else PyTorch. See yn/onnx_backend.py.
+# "auto" prefers an ONNX export when one exists, else PyTorch. See gauge/onnx_backend.py.
 DEFAULT_BACKEND = "auto"
 
 
@@ -75,8 +75,8 @@ def _quiet_libraries() -> None:
 
 
 def _env_threshold() -> float:
-    """YN_THRESHOLD is server config, so a bad value is a RuntimeError, not a caller error."""
-    raw = os.environ.get("YN_THRESHOLD")
+    """GAUGE_THRESHOLD is server config, so a bad value is a RuntimeError, not a caller error."""
+    raw = os.environ.get("GAUGE_THRESHOLD")
     if raw is None:
         return DEFAULT_THRESHOLD
     try:
@@ -84,7 +84,7 @@ def _env_threshold() -> float:
     except ValueError:
         value = -1.0
     if not 0 <= value <= 1:
-        raise RuntimeError(f"YN_THRESHOLD must be a number from 0 to 1, got {raw!r}")
+        raise RuntimeError(f"GAUGE_THRESHOLD must be a number from 0 to 1, got {raw!r}")
     return value
 
 
@@ -124,13 +124,13 @@ class Decider:
         template: str = DEFAULT_TEMPLATE,
         backend: str | None = None,
     ):
-        self.model_name = model_name or os.environ.get("YN_MODEL", DEFAULT_MODEL)
+        self.model_name = model_name or os.environ.get("GAUGE_MODEL", DEFAULT_MODEL)
         self.threshold = threshold if threshold is not None else _env_threshold()
-        self.device = device or os.environ.get("YN_DEVICE", "auto")
-        self.backend = backend or os.environ.get("YN_BACKEND", DEFAULT_BACKEND)
+        self.device = device or os.environ.get("GAUGE_DEVICE", "auto")
+        self.backend = backend or os.environ.get("GAUGE_BACKEND", DEFAULT_BACKEND)
         if self.backend not in ("auto", "torch", "onnx"):
             raise RuntimeError(
-                f"YN_BACKEND must be auto, torch or onnx, got {self.backend!r}"
+                f"GAUGE_BACKEND must be auto, torch or onnx, got {self.backend!r}"
             )
         self.template = template
         self._model = None
@@ -148,7 +148,7 @@ class Decider:
         """Explicit "onnx" always; "auto" only when an export is already on disk."""
         if self.backend == "torch":
             return False
-        from yn.onnx_backend import is_exported
+        from gauge.onnx_backend import is_exported
 
         if self.backend == "onnx":
             return True
@@ -161,24 +161,24 @@ class Decider:
         """Build the ONNX runner, or None when "auto" should fall back to torch.
 
         An export can be complete and current and still not load: onnxruntime may not
-        be installed (`pip install yn[export]` alone does exactly that), or the graph
+        be installed (`pip install gauge-model[export]` alone does exactly that), or the graph
         may be corrupt. "auto" promises a silent fallback, so only "onnx" raises.
-        A bad YN_ONNX_THREADS is the user's config, though, so it always raises.
+        A bad GAUGE_ONNX_THREADS is the user's config, though, so it always raises.
         """
-        from yn.onnx_backend import _env_threads
+        from gauge.onnx_backend import _env_threads
 
         _env_threads()
         try:
-            from yn.onnx_backend import OnnxRunner
+            from gauge.onnx_backend import OnnxRunner
 
             return OnnxRunner(self.model_name)
         except Exception as e:
             if self.backend == "onnx":
                 raise
-            if os.environ.get("YN_VERBOSE"):
+            if os.environ.get("GAUGE_VERBOSE"):
                 import sys
 
-                print(f"yn: ONNX backend unavailable ({type(e).__name__}: {e}); "
+                print(f"gauge: ONNX backend unavailable ({type(e).__name__}: {e}); "
                       f"using torch", file=sys.stderr)
             return None
 
@@ -194,7 +194,7 @@ class Decider:
                     self._runner = runner
                     return
                 # backend="auto" and the runner wouldn't build: fall through to torch.
-            if not os.environ.get("YN_VERBOSE"):
+            if not os.environ.get("GAUGE_VERBOSE"):
                 _quiet_libraries()
             import torch
             from transformers import AutoModelForSequenceClassification, AutoTokenizer

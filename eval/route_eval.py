@@ -1,4 +1,4 @@
-"""Measure `yn route` on eval/route_tasks.json with the built-in routes.
+"""Measure `gauge route` on eval/route_tasks.json with the built-in routes.
 
     .venv/bin/python eval/route_eval.py
 
@@ -9,8 +9,8 @@ route wordings or models, not to claim accuracy.
 import json
 from pathlib import Path
 
-from yn.model import get_decider
-from yn.route import DEFAULT_ROUTES, route_many
+from gauge.model import get_decider
+from gauge.route import DEFAULT_ROUTES, route_many
 
 ORDER = [r["model"] for r in DEFAULT_ROUTES]  # cheapest first
 cases = json.loads((Path(__file__).parent / "route_tasks.json").read_text())

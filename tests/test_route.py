@@ -1,4 +1,4 @@
-"""Unit tests for yn/route.py with the fake model."""
+"""Unit tests for gauge/route.py with the fake model."""
 
 from __future__ import annotations
 
@@ -6,9 +6,9 @@ import json
 
 import pytest
 
-from yn.cli import EXIT_ERROR, EXIT_UNSURE, EXIT_USAGE, main
-from yn.model import InputError
-from yn.route import DEFAULT_ROUTES, check_routes, default_routes, read_routes_file, route_many
+from gauge.cli import EXIT_ERROR, EXIT_UNSURE, EXIT_USAGE, main
+from gauge.model import InputError
+from gauge.route import DEFAULT_ROUTES, check_routes, default_routes, read_routes_file, route_many
 
 TASK = "Fix the typo in the README title"
 ROUTES = [{"model": "small", "when": "A quick edit"},
@@ -76,7 +76,7 @@ def test_results_in_task_order(decider, fake_model):
     assert [r.answer for r in route_many(decider, ["a", "b"], ROUTES)] == ["small", "big"]
 
 
-# --- routes files and YN_ROUTES -----------------------------------------------------
+# --- routes files and GAUGE_ROUTES -----------------------------------------------------
 
 def test_read_routes_file(tmp_path):
     p = tmp_path / "r.json"
@@ -93,16 +93,16 @@ def test_bad_routes_file_is_input_error(tmp_path, content):
         read_routes_file(str(p))
 
 
-def test_yn_routes_env(tmp_path, monkeypatch):
+def test_gauge_routes_env(tmp_path, monkeypatch):
     p = tmp_path / "r.json"
     p.write_text(json.dumps(ROUTES))
-    monkeypatch.setenv("YN_ROUTES", str(p))
+    monkeypatch.setenv("GAUGE_ROUTES", str(p))
     assert default_routes() == ROUTES
 
 
-def test_bad_yn_routes_env_is_setup_error_not_caller_error(tmp_path, monkeypatch):
-    monkeypatch.setenv("YN_ROUTES", str(tmp_path / "missing.json"))
-    with pytest.raises(RuntimeError, match="YN_ROUTES") as e:
+def test_bad_gauge_routes_env_is_setup_error_not_caller_error(tmp_path, monkeypatch):
+    monkeypatch.setenv("GAUGE_ROUTES", str(tmp_path / "missing.json"))
+    with pytest.raises(RuntimeError, match="GAUGE_ROUTES") as e:
         default_routes()
     assert not isinstance(e.value, InputError)
 
@@ -129,8 +129,8 @@ def test_cli_bad_routes_file_is_usage_error(fake_model, tmp_path, capsys):
     assert "can't read routes file" in capsys.readouterr().err
 
 
-def test_cli_bad_yn_routes_env_is_setup_error(fake_model, tmp_path, monkeypatch):
-    monkeypatch.setenv("YN_ROUTES", str(tmp_path / "nope.json"))
+def test_cli_bad_gauge_routes_env_is_setup_error(fake_model, tmp_path, monkeypatch):
+    monkeypatch.setenv("GAUGE_ROUTES", str(tmp_path / "nope.json"))
     assert main(["route", TASK]) == EXIT_ERROR
 
 
@@ -144,39 +144,39 @@ def test_overlong_when_is_input_error():
         check_routes([{"model": "a", "when": "x" * 1001}, ROUTES[1]])
 
 
-def test_overlong_when_in_yn_routes_is_setup_error(decider, tmp_path, monkeypatch):
+def test_overlong_when_in_gauge_routes_is_setup_error(decider, tmp_path, monkeypatch):
     p = tmp_path / "r.json"
     p.write_text(json.dumps([{"model": "a", "when": "x" * 1001}, ROUTES[1]]))
-    monkeypatch.setenv("YN_ROUTES", str(p))
-    with pytest.raises(RuntimeError, match="YN_ROUTES") as e:
+    monkeypatch.setenv("GAUGE_ROUTES", str(p))
+    with pytest.raises(RuntimeError, match="GAUGE_ROUTES") as e:
         route_many(decider, [TASK])
     assert not isinstance(e.value, InputError)
 
 
-def test_token_limit_on_yn_routes_is_setup_error(decider, monkeypatch):
+def test_token_limit_on_gauge_routes_is_setup_error(decider, monkeypatch):
     """Statements can pass the character check but fail the token check (e.g. CJK)."""
     def too_long(self, statements):
         raise InputError("a claim or option is 900 tokens; the limit is 400. Shorten it.")
-    monkeypatch.setattr("yn.model.Decider.check_statements", too_long)
-    with pytest.raises(RuntimeError, match="YN_ROUTES: a claim or option is 900 tokens"):
+    monkeypatch.setattr("gauge.model.Decider.check_statements", too_long)
+    with pytest.raises(RuntimeError, match="GAUGE_ROUTES: a claim or option is 900 tokens"):
         route_many(decider, [TASK])
     with pytest.raises(InputError):  # the same problem in caller-supplied routes
         route_many(decider, [TASK], ROUTES)
 
 
-def test_cli_routes_flag_overrides_yn_routes(fake_model, tmp_path, monkeypatch, capsys):
+def test_cli_routes_flag_overrides_gauge_routes(fake_model, tmp_path, monkeypatch, capsys):
     p = tmp_path / "r.json"
     p.write_text(json.dumps(ROUTES))
-    monkeypatch.setenv("YN_ROUTES", str(tmp_path / "missing.json"))  # would error if read
+    monkeypatch.setenv("GAUGE_ROUTES", str(tmp_path / "missing.json"))  # would error if read
     set_weights(fake_model, TASK, {"small": 9, "big": 1})
     assert main(["route", "--routes", str(p), TASK]) == 0
     assert capsys.readouterr().out == "small\t0.90\n"
 
 
-def test_cli_overlong_when_in_yn_routes_exits_3(fake_model, tmp_path, monkeypatch):
+def test_cli_overlong_when_in_gauge_routes_exits_3(fake_model, tmp_path, monkeypatch):
     p = tmp_path / "r.json"
     p.write_text(json.dumps([{"model": "a", "when": "x" * 1001}, ROUTES[1]]))
-    monkeypatch.setenv("YN_ROUTES", str(p))
+    monkeypatch.setenv("GAUGE_ROUTES", str(p))
     assert main(["route", TASK]) == EXIT_ERROR
 
 
@@ -194,12 +194,12 @@ def test_length_limit_counts_the_added_period(when, ok):
             check_routes(routes)
 
 
-def test_1000_char_unpunctuated_when_in_yn_routes_is_setup_error(decider, tmp_path,
+def test_1000_char_unpunctuated_when_in_gauge_routes_is_setup_error(decider, tmp_path,
                                                                   monkeypatch):
     p = tmp_path / "r.json"
     p.write_text(json.dumps([{"model": "a", "when": "x" * 1000}, ROUTES[1]]))
-    monkeypatch.setenv("YN_ROUTES", str(p))
-    with pytest.raises(RuntimeError, match="YN_ROUTES") as e:
+    monkeypatch.setenv("GAUGE_ROUTES", str(p))
+    with pytest.raises(RuntimeError, match="GAUGE_ROUTES") as e:
         route_many(decider, [TASK])
     assert not isinstance(e.value, InputError)
     assert main(["route", TASK]) == EXIT_ERROR
