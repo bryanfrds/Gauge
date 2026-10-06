@@ -1,10 +1,10 @@
-# YN — Technical Spec
+# Gauge — Technical Spec
 
 Status: **draft**. This describes the intended design. Nothing is built yet.
 
 ## 1. Scope
 
-YN is a **non-generative decision model**. Given an input text, a question and a set of
+Gauge is a **non-generative decision model**. Given an input text, a question and a set of
 candidate answers (labels), it returns a probability for each label. It never generates
 free text.
 
@@ -37,7 +37,7 @@ images/audio, languages other than English, long documents over the context limi
   "answer": "billing",
   "confidence": 0.94,
   "scores": { "billing": 0.94, "shipping": 0.03, "technical": 0.01, "other": 0.02 },
-  "model": "yn-base-v0.1"
+  "model": "gauge-base-v0.1"
 }
 ```
 
@@ -81,8 +81,8 @@ Size targets:
 
 | Variant | Params | Target latency (CPU, 4 labels) |
 |---|---|---|
-| `yn-small` | ~30–50M | < 20 ms |
-| `yn-base` | ~150M | < 60 ms |
+| `gauge-small` | ~30–50M | < 20 ms |
+| `gauge-base` | ~150M | < 60 ms |
 
 Base model choice is confirmed in Phase 1 by benchmark, not assumed. See the roadmap.
 
@@ -132,8 +132,8 @@ and vary the number of answers, so the model doesn't learn shortcuts.
 | Latency | p50 / p95 on a stated CPU | Meets §3.2 targets |
 | Cost | $ per 1M decisions vs an LLM API | Reported, no bar |
 
-Baselines to report alongside YN: an existing open zero-shot classifier (NLI-based),
-and a prompted LLM. Publish the numbers even when YN loses.
+Baselines to report alongside Gauge: an existing open zero-shot classifier (NLI-based),
+and a prompted LLM. Publish the numbers even when Gauge loses.
 
 ## 6. Release gates
 
@@ -145,15 +145,15 @@ A version ships only when:
 
 ## 7. Packaging
 
-- **Python library:** `pip install yn-model`, then `yn.decide(input, answers)`.
+- **Python library:** `pip install gauge-model`, then `gauge.decide(input, answers)`.
 - **HTTP server:** one `POST /decide` endpoint implementing §2.
-- **CLI:** `yn check "<claim>"` and `yn decide "<text>" <option> <option>` (or `-o <option>` per option), reading input
+- **CLI:** `gauge check "<claim>"` and `gauge decide "<text>" <option> <option>` (or `-o <option>` per option), reading input
   from an argument or stdin and printing `answer confidence`. See
-  [CLAUDE-AND-CODEX.md](CLAUDE-AND-CODEX.md#terminal-command-yn).
-- **Stand-in interface note:** until YN's own model exists, the stand-in takes a
+  [CLAUDE-AND-CODEX.md](CLAUDE-AND-CODEX.md#terminal-command-gauge).
+- **Stand-in interface note:** until Gauge's own model exists, the stand-in takes a
   `claim` (a statement) instead of a `question`, and `options` instead of `answers`,
   because it judges whether text supports a statement.
-- **MCP server:** `yn-mcp`, so Claude Code, Codex and other agents can call YN as a
+- **MCP server:** `gauge-mcp`, so Claude Code, Codex and other agents can call Gauge as a
   tool. Full design in [CLAUDE-AND-CODEX.md](CLAUDE-AND-CODEX.md).
 - **Weights:** published on Hugging Face, in safetensors format, plus ONNX (a portable
   format for fast CPU inference).
@@ -162,12 +162,12 @@ A version ships only when:
 ## 8. Planned repo layout
 
 ```
-yn-ai-model/
+gauge/
   README.md
   LICENSE
   docs/            this spec, overview, roadmap, model card
   data/            dataset builders + SOURCES.md (no raw data committed)
-  yn/              library: model, scoring, calibration
+  gauge/              library: model, scoring, calibration
   train/           training scripts and configs
   eval/            evaluation suites and baselines
   server/          HTTP server
@@ -178,13 +178,13 @@ yn-ai-model/
 
 Other projects built on the same idea: score answers instead of writing text.
 
-| Project | What it does | Open? | How YN differs |
+| Project | What it does | Open? | How Gauge differs |
 |---|---|---|---|
 | **Jev** by TypeSafe AI ([blog](https://typesafe.ai/blog/introducing-system-one-models-and-jev), Sept 2026) | General decision model: typed answers from a predefined set, with calibrated probabilities. Non-autoregressive with parallel sampling (scores all options at once, not word by word). Trained with **RLCD** (Reinforcement Learning for Calibrated Decisions) so its confidence is honest. | ❌ No weights, paper or dataset | Same goal, fully open |
-| **SalesRLAgent** by Nandakishor M ([paper](https://arxiv.org/abs/2503.23303), Mar 2025; [model](https://huggingface.co/DeepMostInnovations/sales-conversion-model-reinf-learning), MIT; [dataset](https://huggingface.co/datasets/DeepMostInnovations/saas-sales-conversations)) | Predicts sales conversion probability (0–1) after each turn of a sales chat. PPO (a reinforcement learning method) over text embeddings. Trained on GPT-4o-generated conversations. | ✅ | Single task (sales only). YN takes any question |
-| **Confidence-Aware Routing** by Nandakishor M ([paper](https://arxiv.org/abs/2510.01237), Sept 2025) | Scores an LLM's confidence *before* it answers, then routes the query: answer directly, retrieve first, escalate to a bigger model, or send to a human. | Paper | Single task (hallucination routing). Close to YN's `sure` handoff ([CLAUDE-AND-CODEX.md](CLAUDE-AND-CODEX.md)) |
+| **SalesRLAgent** by Nandakishor M ([paper](https://arxiv.org/abs/2503.23303), Mar 2025; [model](https://huggingface.co/DeepMostInnovations/sales-conversion-model-reinf-learning), MIT; [dataset](https://huggingface.co/datasets/DeepMostInnovations/saas-sales-conversations)) | Predicts sales conversion probability (0–1) after each turn of a sales chat. PPO (a reinforcement learning method) over text embeddings. Trained on GPT-4o-generated conversations. | ✅ | Single task (sales only). Gauge takes any question |
+| **Confidence-Aware Routing** by Nandakishor M ([paper](https://arxiv.org/abs/2510.01237), Sept 2025) | Scores an LLM's confidence *before* it answers, then routes the query: answer directly, retrieve first, escalate to a bigger model, or send to a human. | Paper | Single task (hallucination routing). Close to Gauge's `sure` handoff ([CLAUDE-AND-CODEX.md](CLAUDE-AND-CODEX.md)) |
 
-Takeaways for YN:
+Takeaways for Gauge:
 
 - "Score, don't generate" is established. What's missing in the open is a
   **general-purpose** model that handles arbitrary questions and answer sets.

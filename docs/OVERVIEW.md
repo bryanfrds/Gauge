@@ -1,8 +1,8 @@
-# YN — Plain-English Overview
+# Gauge — Plain-English Overview
 
 ## What it is
 
-YN is a small AI that **makes choices**. You give it:
+Gauge is a small AI that **makes choices**. You give it:
 
 1. some **input**, like a message, a product description or a support ticket,
 2. a **question** about that input, and
@@ -23,7 +23,7 @@ handles longer lists, like picking one of five teams.
 
 ## Why that's useful
 
-| | Chat AI (like ChatGPT) | YN |
+| | Chat AI (like ChatGPT) | Gauge |
 |---|---|---|
 | Output | Paragraphs of text | One answer + a confidence number |
 | Speed | Seconds | Milliseconds (thousandths of a second) |
