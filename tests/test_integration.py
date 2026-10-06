@@ -11,11 +11,11 @@ from pathlib import Path
 
 import pytest
 
-from yn.model import Decider
+from gauge.model import Decider
 
 pytestmark = pytest.mark.slow
 
-YN_MCP = Path(sys.executable).parent / "yn-mcp"
+GAUGE_MCP = Path(sys.executable).parent / "gauge-mcp"
 
 
 @pytest.fixture(scope="module")
@@ -57,17 +57,17 @@ async def test_mcp_stdio_round_trip(tmp_path):
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
 
-    assert YN_MCP.exists(), f"{YN_MCP} missing; run `pip install -e .`"
+    assert GAUGE_MCP.exists(), f"{GAUGE_MCP} missing; run `pip install -e .`"
     with open(tmp_path / "server-stderr.txt", "w") as errlog:
-        params = StdioServerParameters(command=str(YN_MCP))
+        params = StdioServerParameters(command=str(GAUGE_MCP))
         async with stdio_client(params, errlog=errlog) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 tools = await session.list_tools()
                 assert {t.name for t in tools.tools} == {
-                    "yn_check", "yn_decide", "yn_check_batch", "yn_decide_batch",
-                    "yn_route", "yn_route_batch"}
-                result = await session.call_tool("yn_check", {
+                    "gauge_check", "gauge_decide", "gauge_check_batch", "gauge_decide_batch",
+                    "gauge_route", "gauge_route_batch"}
+                result = await session.call_tool("gauge_check", {
                     "input": "URGENT: production database is down, customers can't pay",
                     "claim": "This message is urgent.",
                 })
@@ -76,7 +76,7 @@ async def test_mcp_stdio_round_trip(tmp_path):
 
 
 def test_long_non_latin_claim_is_clear_input_error(real_decider):
-    from yn.model import MAX_STATEMENT_CHARS, InputError
+    from gauge.model import MAX_STATEMENT_CHARS, InputError
     claim = "这封邮件非常紧急需要马上处理" * 70  # under the character limit, over 400 tokens
     assert len(claim) < MAX_STATEMENT_CHARS
     with pytest.raises(InputError, match="tokens"):
@@ -85,28 +85,28 @@ def test_long_non_latin_claim_is_clear_input_error(real_decider):
     assert real_decider.check("You won a free iPhone, click here!", "This email is spam.").answer == "true"
 
 
-# Pinned to the stand-in model's behaviour; revisit when YN's own model replaces it.
+# Pinned to the stand-in model's behaviour; revisit when Gauge's own model replaces it.
 def test_route_obvious_small_task_to_cheapest_model(real_decider):
-    from yn.route import route_many
+    from gauge.route import route_many
     r = route_many(real_decider, ["Fix the typo in the README title"])[0]
     assert r.answer == "claude-haiku-4-5"
 
 
 def test_route_with_custom_routes(real_decider):
-    from yn.route import route_many
+    from gauge.route import route_many
     routes = [{"model": "small", "when": "A quick simple edit."},
               {"model": "big", "when": "A hard multi-file change."}]
     r = route_many(real_decider, ["Refactor the auth module across 30 files"], routes)[0]
     assert r.answer == "big"
 
 
-def test_long_cjk_when_in_yn_routes_is_setup_error(real_decider, tmp_path, monkeypatch):
-    from yn.model import MAX_STATEMENT_CHARS
-    from yn.route import route_many
+def test_long_cjk_when_in_gauge_routes_is_setup_error(real_decider, tmp_path, monkeypatch):
+    from gauge.model import MAX_STATEMENT_CHARS
+    from gauge.route import route_many
     when = "这类任务需要非常仔细的推理和规划" * 55
     assert len(when) < MAX_STATEMENT_CHARS
     p = tmp_path / "r.json"
     p.write_text(json.dumps([{"model": "a", "when": when}, {"model": "b", "when": "A quick edit."}]))
-    monkeypatch.setenv("YN_ROUTES", str(p))
-    with pytest.raises(RuntimeError, match="YN_ROUTES: .*tokens"):
+    monkeypatch.setenv("GAUGE_ROUTES", str(p))
+    with pytest.raises(RuntimeError, match="GAUGE_ROUTES: .*tokens"):
         route_many(real_decider, ["fix typo"])

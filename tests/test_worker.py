@@ -8,8 +8,8 @@ import time
 
 import pytest
 
-from yn.model import Decision, InputError
-from yn.worker import DEFAULT_IDLE_UNLOAD, WorkerDecider, env_idle_unload
+from gauge.model import Decision, InputError
+from gauge.worker import DEFAULT_IDLE_UNLOAD, WorkerDecider, env_idle_unload
 
 FAKE = "fake_worker_decider:FakeDecider"
 
@@ -117,16 +117,16 @@ def test_stop_ends_the_process(worker):
 ])
 def test_idle_unload_setting(monkeypatch, raw, expected):
     if raw is None:
-        monkeypatch.delenv("YN_IDLE_UNLOAD", raising=False)
+        monkeypatch.delenv("GAUGE_IDLE_UNLOAD", raising=False)
     else:
-        monkeypatch.setenv("YN_IDLE_UNLOAD", raw)
+        monkeypatch.setenv("GAUGE_IDLE_UNLOAD", raw)
     assert env_idle_unload() == expected
 
 
 @pytest.mark.parametrize("raw", ["soon", "-5", "nan"])
 def test_bad_idle_unload_setting_is_an_error(monkeypatch, raw):
-    monkeypatch.setenv("YN_IDLE_UNLOAD", raw)
-    with pytest.raises(RuntimeError, match="YN_IDLE_UNLOAD"):
+    monkeypatch.setenv("GAUGE_IDLE_UNLOAD", raw)
+    with pytest.raises(RuntimeError, match="GAUGE_IDLE_UNLOAD"):
         env_idle_unload()
 
 
@@ -156,7 +156,7 @@ def test_a_setup_error_reaches_the_caller():
     w = WorkerDecider(60, factory="fake_worker_decider:BrokenSetup")
     try:
         for _ in range(2):
-            with pytest.raises(RuntimeError, match="YN_THRESHOLD"):
+            with pytest.raises(RuntimeError, match="GAUGE_THRESHOLD"):
                 w.check("t", "c")
         assert w.running                            # one process, not one per retry
     finally:
@@ -190,7 +190,7 @@ def test_stop_gives_up_waiting_for_a_stuck_call_and_kills_it():
 @pytest.fixture
 def server(monkeypatch):
     """mcp_server.main() with the protocol loop and warm-up thread stubbed out."""
-    from yn import mcp_server
+    from gauge import mcp_server
 
     ran: list = []
     warmed: list = []
@@ -203,7 +203,7 @@ def server(monkeypatch):
 
 def test_server_answers_from_a_child_process_by_default(server, monkeypatch):
     mcp_server, ran, warmed = server
-    monkeypatch.delenv("YN_IDLE_UNLOAD", raising=False)
+    monkeypatch.delenv("GAUGE_IDLE_UNLOAD", raising=False)
     stopped = []
     monkeypatch.setattr(WorkerDecider, "stop", lambda self: stopped.append(self))
     mcp_server.main()
@@ -215,7 +215,7 @@ def test_server_answers_from_a_child_process_by_default(server, monkeypatch):
 
 def test_server_with_idle_unload_off_keeps_the_model_in_process(server, monkeypatch):
     mcp_server, ran, warmed = server
-    monkeypatch.setenv("YN_IDLE_UNLOAD", "0")
+    monkeypatch.setenv("GAUGE_IDLE_UNLOAD", "0")
     mcp_server.main()
     assert not isinstance(ran[0], WorkerDecider)
     assert warmed == [mcp_server._warm_up]

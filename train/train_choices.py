@@ -1,4 +1,4 @@
-"""Fine-tune YN on your own labelled examples, so `decide` learns your labels.
+"""Fine-tune Gauge on your own labelled examples, so `decide` learns your labels.
 
     .venv/bin/python train/train_choices.py --data labelled.csv \\
         --labels Positive Neutral Negative \\
@@ -11,13 +11,13 @@ subject: {entity} above. {label} and {label_lower} are the option being scored.
 
 Training matches how `decide` scores at inference: each text is paired with one
 statement per label, the entailment logits are softmaxed across the statements,
-and cross-entropy pushes up the right one. So the result is still a YN model: ask
+and cross-entropy pushes up the right one. So the result is still a Gauge model: ask
 it with the same statements, e.g.
 
-    yn decide "<post>" "This post is positive about Acme Bank." \\
+    gauge decide "<post>" "This post is positive about Acme Bank." \\
         "This post is neutral about Acme Bank." "This post is negative about Acme Bank."
 
-with YN_MODEL pointing at --out.
+with GAUGE_MODEL pointing at --out.
 
 Labelled data is often private (customer messages, social posts), and a model
 trained on it can leak it. Keep --data and --out outside this repository; the
@@ -41,7 +41,7 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from yn.model import DEFAULT_MODEL, DEFAULT_THRESHOLD  # noqa: E402
+from gauge.model import DEFAULT_MODEL, DEFAULT_THRESHOLD  # noqa: E402
 
 MAX_CHARS = 2000  # long posts: the opening carries the sentiment, and it keeps steps fast
 
@@ -230,7 +230,7 @@ def main() -> None:
             best = after
             model.save_pretrained(args.out)
             tok.save_pretrained(args.out)
-            (Path(args.out) / "yn_training.json").write_text(json.dumps(
+            (Path(args.out) / "gauge_training.json").write_text(json.dumps(
                 {"base": args.base, "epoch": epoch + 1, "before": before, "after": after,
                  "labels": args.labels, "template": args.template,
                  "args": {k: v for k, v in vars(args).items() if k not in ("data", "test")}},

@@ -1,11 +1,11 @@
-"""A public benchmark anyone can rerun: YN on finance tweets, before and after training.
+"""A public benchmark anyone can rerun: Gauge on finance tweets, before and after training.
 
     .venv/bin/python train/examples/twitter_financial.py              # download, train, score
     .venv/bin/python train/examples/twitter_financial.py --prepare-only
 
 Data: Twitter Financial News Sentiment (zeroshot/twitter-financial-news-sentiment on
 Hugging Face, MIT licence): 11,931 finance tweets labelled Bearish, Bullish or Neutral,
-already split into train (9,543) and validation (2,388). YN trains on the train split
+already split into train (9,543) and validation (2,388). Gauge trains on the train split
 and is scored on the validation split, which it never sees.
 
 The data goes to data/twitter-financial/ and the model to models/twitter-financial/,

@@ -1,10 +1,10 @@
-"""Unit tests for yn.model with a fake model (no weights loaded)."""
+"""Unit tests for gauge.model with a fake model (no weights loaded)."""
 
 from __future__ import annotations
 
 import pytest
 
-from yn.model import DEFAULT_TEMPLATE, MAX_OPTIONS, Decider, Decision, _as_statement
+from gauge.model import DEFAULT_TEMPLATE, MAX_OPTIONS, Decider, Decision, _as_statement
 
 CLAIM = "This email is spam."
 
@@ -239,12 +239,12 @@ def test_not_sure_just_above_exact_confidence(decider):
 
 
 def test_threshold_from_env(monkeypatch, fake_model):
-    monkeypatch.setenv("YN_THRESHOLD", "0.3")
+    monkeypatch.setenv("GAUGE_THRESHOLD", "0.3")
     assert Decider().threshold == 0.3
 
 
 def test_explicit_threshold_overrides_env(monkeypatch, fake_model):
-    monkeypatch.setenv("YN_THRESHOLD", "0.3")
+    monkeypatch.setenv("GAUGE_THRESHOLD", "0.3")
     assert Decider(threshold=0.7).threshold == 0.7
 
 
@@ -353,7 +353,7 @@ def test_decide_tie_picks_first_option(decider):
 # --- construction ------------------------------------------------------------------
 
 def test_model_name_from_env(monkeypatch, fake_model):
-    monkeypatch.setenv("YN_MODEL", "some/other-model")
+    monkeypatch.setenv("GAUGE_MODEL", "some/other-model")
     assert Decider().model_name == "some/other-model"
 
 
@@ -372,22 +372,22 @@ def test_sure_uses_rounded_confidence(decider):
 
 
 def test_bad_threshold_env_raises_runtime_error(monkeypatch):
-    monkeypatch.setenv("YN_THRESHOLD", "abc")
-    with pytest.raises(RuntimeError, match="YN_THRESHOLD"):
+    monkeypatch.setenv("GAUGE_THRESHOLD", "abc")
+    with pytest.raises(RuntimeError, match="GAUGE_THRESHOLD"):
         Decider()
 
 
 # --- size limits -----------------------------------------------------------------------
 
 def test_too_many_inputs_rejected(decider, fake_model):
-    from yn.model import MAX_INPUTS, InputError
+    from gauge.model import MAX_INPUTS, InputError
     with pytest.raises(InputError, match="at most"):
         decider.check_many(["x"] * (MAX_INPUTS + 1), "This is spam.")
     assert fake_model.calls == []
 
 
 def test_too_many_pairs_rejected(decider, fake_model):
-    from yn.model import MAX_PAIRS, InputError
+    from gauge.model import MAX_PAIRS, InputError
     options = [f"option {i}" for i in range(50)]
     with pytest.raises(InputError, match="Split the inputs"):
         decider.decide_many(["x"] * (MAX_PAIRS // 50 + 1), options)
@@ -395,7 +395,7 @@ def test_too_many_pairs_rejected(decider, fake_model):
 
 
 def test_overlong_input_and_claim_rejected(decider):
-    from yn.model import MAX_INPUT_CHARS, MAX_STATEMENT_CHARS, InputError
+    from gauge.model import MAX_INPUT_CHARS, MAX_STATEMENT_CHARS, InputError
     with pytest.raises(InputError, match="input is"):
         decider.check("x" * (MAX_INPUT_CHARS + 1), "This is spam.")
     with pytest.raises(InputError, match="claim is"):
@@ -452,7 +452,7 @@ def test_inference_never_overlaps(monkeypatch):
 
 def test_statement_over_token_limit_rejected(monkeypatch):
     """Short in characters but long in tokens (e.g. Chinese) must be a clear InputError."""
-    from yn.model import MAX_STATEMENT_TOKENS, InputError
+    from gauge.model import MAX_STATEMENT_TOKENS, InputError
 
     calls = []
 
@@ -472,24 +472,24 @@ def test_statement_over_token_limit_rejected(monkeypatch):
 # --- backend selection -------------------------------------------------------------
 
 def test_default_backend_is_auto(fake_model):
-    from yn.model import DEFAULT_BACKEND
+    from gauge.model import DEFAULT_BACKEND
     assert Decider().backend == DEFAULT_BACKEND == "auto"
 
 
 @pytest.mark.parametrize("value", ["auto", "torch", "onnx"])
 def test_backend_from_env(monkeypatch, fake_model, value):
-    monkeypatch.setenv("YN_BACKEND", value)
+    monkeypatch.setenv("GAUGE_BACKEND", value)
     assert Decider().backend == value
 
 
 def test_explicit_backend_overrides_env(monkeypatch, fake_model):
-    monkeypatch.setenv("YN_BACKEND", "onnx")
+    monkeypatch.setenv("GAUGE_BACKEND", "onnx")
     assert Decider(backend="torch").backend == "torch"
 
 
 @pytest.mark.parametrize("bad", ["ONNX", "tensorflow", " torch", "torch "])
 def test_bad_backend_raises_runtime_error_at_construction(bad):
-    with pytest.raises(RuntimeError, match="YN_BACKEND must be auto, torch or onnx"):
+    with pytest.raises(RuntimeError, match="GAUGE_BACKEND must be auto, torch or onnx"):
         Decider(backend=bad)
 
 
@@ -498,27 +498,27 @@ def test_empty_backend_falls_back_to_the_default(fake_model):
 
 
 def test_bad_backend_env_raises_runtime_error(monkeypatch):
-    monkeypatch.setenv("YN_BACKEND", "tensorflow")
-    with pytest.raises(RuntimeError, match="YN_BACKEND"):
+    monkeypatch.setenv("GAUGE_BACKEND", "tensorflow")
+    with pytest.raises(RuntimeError, match="GAUGE_BACKEND"):
         Decider()
 
 
 def test_backend_torch_never_looks_for_an_export(monkeypatch):
-    from yn import onnx_backend
+    from gauge import onnx_backend
     monkeypatch.setattr(onnx_backend, "is_exported",
                         lambda name: pytest.fail("torch backend must not check for an export"))
     assert Decider(backend="torch")._use_onnx() is False
 
 
 def test_backend_onnx_is_used_even_with_no_export(monkeypatch):
-    from yn import onnx_backend
+    from gauge import onnx_backend
     monkeypatch.setattr(onnx_backend, "is_exported", lambda name: False)
     assert Decider(backend="onnx")._use_onnx() is True
 
 
 @pytest.mark.parametrize("exported", [True, False])
 def test_backend_auto_follows_is_exported(monkeypatch, exported):
-    from yn import onnx_backend
+    from gauge import onnx_backend
     seen = []
 
     def is_exported(name):
@@ -584,11 +584,11 @@ def test_decide_many_reshape_maps_each_row_to_its_own_text(decider, fake_model):
 
 
 # --- "auto" must fall back, not fail -----------------------------------------------
-# `pip install 'yn[export]'` then `yn export-onnx` leaves a complete export with no
+# `pip install 'gauge-model[export]'` then `gauge export-onnx` leaves a complete export with no
 # onnxruntime to run it. Without a fallback that combination bricks every call.
 
 def test_auto_falls_back_to_torch_when_the_runner_will_not_build(monkeypatch):
-    import yn.onnx_backend as onnx_backend
+    import gauge.onnx_backend as onnx_backend
 
     def explode(_model):
         raise ImportError("No module named 'onnxruntime'")
@@ -599,7 +599,7 @@ def test_auto_falls_back_to_torch_when_the_runner_will_not_build(monkeypatch):
 
 
 def test_explicit_onnx_backend_raises_instead_of_falling_back(monkeypatch):
-    import yn.onnx_backend as onnx_backend
+    import gauge.onnx_backend as onnx_backend
 
     def explode(_model):
         raise ImportError("No module named 'onnxruntime'")
@@ -611,13 +611,13 @@ def test_explicit_onnx_backend_raises_instead_of_falling_back(monkeypatch):
 
 
 def test_auto_fallback_is_silent_unless_verbose(monkeypatch, capsys):
-    import yn.onnx_backend as onnx_backend
+    import gauge.onnx_backend as onnx_backend
 
     monkeypatch.setattr(onnx_backend, "OnnxRunner",
                         lambda _m: (_ for _ in ()).throw(ImportError("nope")))
     Decider(model_name="fake-model", backend="auto")._load_onnx_runner()
     assert capsys.readouterr().err == ""
 
-    monkeypatch.setenv("YN_VERBOSE", "1")
+    monkeypatch.setenv("GAUGE_VERBOSE", "1")
     Decider(model_name="fake-model", backend="auto")._load_onnx_runner()
     assert "ONNX backend unavailable" in capsys.readouterr().err

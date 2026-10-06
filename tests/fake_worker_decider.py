@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import os
 
-from yn.model import Decision, InputError
+from gauge.model import Decision, InputError
 
 
 class FakeDecider:
@@ -33,10 +33,10 @@ class FakeDecider:
 
 
 class BrokenSetup:
-    """A decider whose construction fails, like one with a bad YN_THRESHOLD."""
+    """A decider whose construction fails, like one with a bad GAUGE_THRESHOLD."""
 
     def __init__(self):
-        raise RuntimeError("YN_THRESHOLD must be a number from 0 to 1, got 'high'")
+        raise RuntimeError("GAUGE_THRESHOLD must be a number from 0 to 1, got 'high'")
 
 
 class OddError(Exception):

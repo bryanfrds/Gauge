@@ -10,7 +10,7 @@ smaller ONNX Runtime execute it instead. Measured on the default model:
 Scores agree with the torch backend within 0.002 (largest measured difference:
 0.0013). They are not bit-identical: the graphs are optimized and fused differently.
 The answer itself did not change in testing, but a confidence within 0.002 of
-YN_THRESHOLD could fall either side of `sure`.
+GAUGE_THRESHOLD could fall either side of `sure`.
 
 Export needs `onnx` and `onnxscript` alongside torch; running needs only
 `onnxruntime`, `tokenizers` and `numpy`. Both are optional extras, so a plain
@@ -54,14 +54,14 @@ def _slug(model_name: str) -> str:
 def export_dir(model_name: str) -> Path:
     """Where an exported model for `model_name` lives.
 
-    YN_ONNX_DIR overrides the cache root, so a container can ship a pre-exported
+    GAUGE_ONNX_DIR overrides the cache root, so a container can ship a pre-exported
     model on a read-only volume instead of exporting at start-up.
     """
-    root = os.environ.get("YN_ONNX_DIR")
+    root = os.environ.get("GAUGE_ONNX_DIR")
     if root:
         return Path(root).expanduser() / _slug(model_name)
     cache = os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache"
-    return Path(cache).expanduser() / "yn" / "onnx" / _slug(model_name)
+    return Path(cache).expanduser() / "gauge" / "onnx" / _slug(model_name)
 
 
 EXPORT_FILES = frozenset({MODEL_FILE, WEIGHTS_FILE, TOKENIZER_FILE, META_FILE})
@@ -71,7 +71,7 @@ STALE_AFTER_SECONDS = 3600
 
 
 def _is_export_dir(directory: Path) -> bool:
-    """True only for a directory YN wrote: its metadata, and nothing but its files.
+    """True only for a directory Gauge wrote: its metadata, and nothing but its files.
 
     `meta.json` alone proves nothing (it is a common name), so the metadata must be
     ours and there must be no file an export doesn't contain.
@@ -83,7 +83,7 @@ def _is_export_dir(directory: Path) -> bool:
 
 
 def _replace_export(tmp: Path, final: Path) -> None:
-    """Move `tmp` onto `final`, never deleting anything YN did not write.
+    """Move `tmp` onto `final`, never deleting anything Gauge did not write.
 
     `final` can be any path the user passed to --out. Only an empty directory or an
     earlier export is replaced; anything else is refused. The old export is moved into
@@ -99,7 +99,7 @@ def _replace_export(tmp: Path, final: Path) -> None:
         raise RuntimeError(f"{final} exists and is not a directory")
     if any(final.iterdir()) and not _is_export_dir(final):
         raise RuntimeError(
-            f"{final} is not empty and is not a yn export. Refusing to replace it; "
+            f"{final} is not empty and is not a gauge export. Refusing to replace it; "
             f"pick an empty directory or remove it yourself."
         )
     # Moved aside rather than deleted first, so a failed swap can put it back. If the
@@ -119,7 +119,7 @@ def _replace_export(tmp: Path, final: Path) -> None:
 def _sweep_stale_temp_dirs(parent: Path) -> None:
     """Remove temp directories a killed export left behind; each is most of a gigabyte.
 
-    Only in YN's own export cache, never next to a user's --out directory, and only
+    Only in Gauge's own export cache, never next to a user's --out directory, and only
     ones old enough that no export can still be writing to them.
     """
     import shutil
@@ -194,7 +194,7 @@ def export(model_name: str, out_dir: Path | None = None) -> Path:
         raise RuntimeError(
             f"{model_name} uses token_type_ids (type_vocab_size="
             f"{model.config.type_vocab_size}); the ONNX export supports only models "
-            f"without segment embeddings. Use YN_BACKEND=torch for this model."
+            f"without segment embeddings. Use GAUGE_BACKEND=torch for this model."
         )
 
     tmp = Path(tempfile.mkdtemp(prefix=TEMP_PREFIX, dir=final.parent))
@@ -243,8 +243,8 @@ def export(model_name: str, out_dir: Path | None = None) -> Path:
 
 
 def _env_threads() -> int | None:
-    """YN_ONNX_THREADS is config, so a bad value is an error, not a reason to fall back."""
-    raw = os.environ.get("YN_ONNX_THREADS")
+    """GAUGE_ONNX_THREADS is config, so a bad value is an error, not a reason to fall back."""
+    raw = os.environ.get("GAUGE_ONNX_THREADS")
     if not raw:
         return None
     try:
@@ -252,7 +252,7 @@ def _env_threads() -> int | None:
     except ValueError:
         value = 0
     if value < 1:
-        raise ValueError(f"YN_ONNX_THREADS must be a whole number of 1 or more, got {raw!r}")
+        raise ValueError(f"GAUGE_ONNX_THREADS must be a whole number of 1 or more, got {raw!r}")
     return value
 
 
@@ -267,7 +267,7 @@ class OnnxRunner:
         if missing:
             raise FileNotFoundError(
                 f"no ONNX export for {model_name} at {self.dir} "
-                f"(missing: {', '.join(missing)}). Run: yn export-onnx"
+                f"(missing: {', '.join(missing)}). Run: gauge export-onnx"
             )
         import numpy as np
         import onnxruntime as ort
@@ -278,17 +278,17 @@ class OnnxRunner:
         if meta.get("format_version") != FORMAT_VERSION:
             raise RuntimeError(
                 f"the export at {self.dir} is format {meta.get('format_version')!r}, "
-                f"this build needs {FORMAT_VERSION}. Re-run: yn export-onnx"
+                f"this build needs {FORMAT_VERSION}. Re-run: gauge export-onnx"
             )
         if meta.get("model") != model_name:
             raise RuntimeError(
                 f"the export at {self.dir} is for {meta.get('model')!r}, not "
-                f"{model_name!r}. Re-run: yn export-onnx"
+                f"{model_name!r}. Re-run: gauge export-onnx"
             )
         self.entail_idx = int(meta["entail_idx"])
 
         self.tokenizer = Tokenizer.from_file(str(self.dir / TOKENIZER_FILE))
-        # only_first matches the torch path (yn/model.py). The library default,
+        # only_first matches the torch path (gauge/model.py). The library default,
         # longest_first, would clip the claim or option as well as the text, and
         # a truncated claim is a different question with a different answer.
         self.tokenizer.enable_truncation(512, strategy="only_first")
@@ -307,11 +307,11 @@ class OnnxRunner:
 
         opts = ort.SessionOptions()
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        if not os.environ.get("YN_VERBOSE"):
+        if not os.environ.get("GAUGE_VERBOSE"):
             # Graph-optimization notes about nodes it can't constant-fold are normal
             # and per-session; 3 = errors only, matching _quiet_libraries() for torch.
             opts.log_severity_level = 3
-        # One session per process; threads are capped so several YN processes on a
+        # One session per process; threads are capped so several Gauge processes on a
         # small box don't each grab every core.
         threads = _env_threads()
         if threads:

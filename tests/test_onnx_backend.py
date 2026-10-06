@@ -1,6 +1,6 @@
 """Unit tests for the ONNX backend (no export run, no weights loaded).
 
-Every test either points YN_ONNX_DIR at tmp_path or stubs the runner, so nothing here
+Every test either points GAUGE_ONNX_DIR at tmp_path or stubs the runner, so nothing here
 downloads a model, exports one, or starts an ONNX Runtime session.
 """
 
@@ -12,9 +12,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from yn import onnx_backend
-from yn.model import BATCH_SIZE, MAX_STATEMENT_TOKENS, Decider, InputError, _softmax
-from yn.onnx_backend import (
+from gauge import onnx_backend
+from gauge.model import BATCH_SIZE, MAX_STATEMENT_TOKENS, Decider, InputError, _softmax
+from gauge.onnx_backend import (
     MODEL_FILE,
     TOKENIZER_FILE,
     OnnxRunner,
@@ -99,31 +99,31 @@ def test_slug_normalises_unsafe_names(name, expected):
 
 def test_export_dir_under_xdg_cache_home(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
-    assert export_dir(MODEL) == tmp_path / "yn" / "onnx" / _slug(MODEL)
+    assert export_dir(MODEL) == tmp_path / "gauge" / "onnx" / _slug(MODEL)
 
 
 def test_export_dir_falls_back_to_home_cache(monkeypatch, tmp_path):
     monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
     monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
-    assert export_dir(MODEL) == tmp_path / ".cache" / "yn" / "onnx" / _slug(MODEL)
+    assert export_dir(MODEL) == tmp_path / ".cache" / "gauge" / "onnx" / _slug(MODEL)
 
 
 def test_export_dir_env_override_wins_over_cache(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
-    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path / "shipped"))
+    monkeypatch.setenv("GAUGE_ONNX_DIR", str(tmp_path / "shipped"))
     assert export_dir(MODEL) == tmp_path / "shipped" / _slug(MODEL)
 
 
 def test_export_dir_expands_tilde_in_override(monkeypatch, tmp_path):
-    monkeypatch.setenv("YN_ONNX_DIR", "~/onnx")
+    monkeypatch.setenv("GAUGE_ONNX_DIR", "~/onnx")
     monkeypatch.setenv("HOME", str(tmp_path))
     assert export_dir(MODEL) == tmp_path / "onnx" / _slug(MODEL)
 
 
 def test_export_dir_ignores_empty_override(monkeypatch, tmp_path):
-    monkeypatch.setenv("YN_ONNX_DIR", "")
+    monkeypatch.setenv("GAUGE_ONNX_DIR", "")
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
-    assert export_dir(MODEL) == tmp_path / "yn" / "onnx" / _slug(MODEL)
+    assert export_dir(MODEL) == tmp_path / "gauge" / "onnx" / _slug(MODEL)
 
 
 @pytest.mark.parametrize(
@@ -132,7 +132,7 @@ def test_export_dir_ignores_empty_override(monkeypatch, tmp_path):
 )
 def test_export_dir_stays_inside_root(monkeypatch, tmp_path, name):
     """A model name is attacker-shaped data; it must not walk out of the cache root."""
-    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    monkeypatch.setenv("GAUGE_ONNX_DIR", str(tmp_path))
     d = export_dir(name)
     assert d.parent == tmp_path
     assert tmp_path in d.resolve().parents
@@ -141,25 +141,25 @@ def test_export_dir_stays_inside_root(monkeypatch, tmp_path, name):
 # --- is_exported -------------------------------------------------------------------
 
 def test_is_exported_true_when_model_and_tokenizer_present(monkeypatch, tmp_path):
-    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    monkeypatch.setenv("GAUGE_ONNX_DIR", str(tmp_path))
     write_export(tmp_path / _slug("fake-model"))
     assert is_exported("fake-model") is True
 
 
 def test_is_exported_false_when_directory_missing(monkeypatch, tmp_path):
-    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    monkeypatch.setenv("GAUGE_ONNX_DIR", str(tmp_path))
     assert is_exported("fake-model") is False
 
 
 def test_is_exported_false_without_tokenizer(monkeypatch, tmp_path):
-    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    monkeypatch.setenv("GAUGE_ONNX_DIR", str(tmp_path))
     d = write_export(tmp_path / _slug("fake-model"))
     (d / TOKENIZER_FILE).unlink()
     assert is_exported("fake-model") is False
 
 
 def test_is_exported_false_without_model_file(monkeypatch, tmp_path):
-    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    monkeypatch.setenv("GAUGE_ONNX_DIR", str(tmp_path))
     d = write_export(tmp_path / _slug("fake-model"))
     (d / MODEL_FILE).unlink()
     assert is_exported("fake-model") is False
@@ -167,7 +167,7 @@ def test_is_exported_false_without_model_file(monkeypatch, tmp_path):
 
 def test_is_exported_false_when_model_path_is_a_directory(monkeypatch, tmp_path):
     """A stray directory named model.onnx is not an export."""
-    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    monkeypatch.setenv("GAUGE_ONNX_DIR", str(tmp_path))
     d = write_export(tmp_path / _slug("fake-model"))
     (d / MODEL_FILE).unlink()
     (d / MODEL_FILE).mkdir()
@@ -175,7 +175,7 @@ def test_is_exported_false_when_model_path_is_a_directory(monkeypatch, tmp_path)
 
 
 def test_is_exported_is_per_model(monkeypatch, tmp_path):
-    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    monkeypatch.setenv("GAUGE_ONNX_DIR", str(tmp_path))
     write_export(tmp_path / _slug("fake-model"))
     assert is_exported("fake-model") is True
     assert is_exported("other/model") is False
@@ -184,13 +184,13 @@ def test_is_exported_is_per_model(monkeypatch, tmp_path):
 # --- OnnxRunner without an export --------------------------------------------------
 
 def test_runner_missing_export_names_the_export_command(monkeypatch, tmp_path):
-    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
-    with pytest.raises(FileNotFoundError, match="yn export-onnx"):
+    monkeypatch.setenv("GAUGE_ONNX_DIR", str(tmp_path))
+    with pytest.raises(FileNotFoundError, match="gauge export-onnx"):
         OnnxRunner("fake-model")
 
 
 def test_runner_missing_export_names_the_model_and_directory(monkeypatch, tmp_path):
-    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    monkeypatch.setenv("GAUGE_ONNX_DIR", str(tmp_path))
     with pytest.raises(FileNotFoundError) as e:
         OnnxRunner("fake-model")
     assert "fake-model" in str(e.value)
@@ -201,7 +201,7 @@ def test_runner_missing_export_raises_before_importing_onnxruntime(monkeypatch, 
     """The failure must be the clear message even where onnxruntime isn't installed."""
     import builtins
 
-    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    monkeypatch.setenv("GAUGE_ONNX_DIR", str(tmp_path))
     real_import = builtins.__import__
 
     def no_onnxruntime(name, *args, **kw):
@@ -270,7 +270,7 @@ def test_softmax_single_column_is_all_ones():
 @pytest.fixture
 def onnx_decider(monkeypatch, tmp_path):
     """Decider whose load() installs a FakeRunner instead of a real ONNX session."""
-    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    monkeypatch.setenv("GAUGE_ONNX_DIR", str(tmp_path))
     write_export(tmp_path / _slug("fake-model"))
     runner = FakeRunner(entail_idx=1)
     monkeypatch.setattr(onnx_backend, "OnnxRunner", lambda name: runner)
@@ -368,7 +368,7 @@ def test_check_statements_counts_each_statement_once(onnx_decider):
 
 def test_is_exported_false_without_weights_sidecar(monkeypatch, tmp_path):
     """model.onnx is a stub; ONNX Runtime opens model.onnx.data for the weights."""
-    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    monkeypatch.setenv("GAUGE_ONNX_DIR", str(tmp_path))
     d = write_export(tmp_path / _slug("fake-model"))
     (d / onnx_backend.WEIGHTS_FILE).unlink()
     assert is_exported("fake-model") is False
@@ -376,14 +376,14 @@ def test_is_exported_false_without_weights_sidecar(monkeypatch, tmp_path):
 
 def test_is_exported_false_without_meta(monkeypatch, tmp_path):
     """OnnxRunner reads meta.json, so an export without it is not usable."""
-    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    monkeypatch.setenv("GAUGE_ONNX_DIR", str(tmp_path))
     d = write_export(tmp_path / _slug("fake-model"))
     (d / onnx_backend.META_FILE).unlink()
     assert is_exported("fake-model") is False
 
 
 def test_is_exported_false_when_meta_is_unreadable(monkeypatch, tmp_path):
-    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    monkeypatch.setenv("GAUGE_ONNX_DIR", str(tmp_path))
     d = write_export(tmp_path / _slug("fake-model"))
     (d / onnx_backend.META_FILE).write_text("{not json")
     assert is_exported("fake-model") is False
@@ -391,7 +391,7 @@ def test_is_exported_false_when_meta_is_unreadable(monkeypatch, tmp_path):
 
 def test_is_exported_false_on_older_format(monkeypatch, tmp_path):
     """An export from older code may not match today's graph or tokenizer settings."""
-    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    monkeypatch.setenv("GAUGE_ONNX_DIR", str(tmp_path))
     write_export(tmp_path / _slug("fake-model"),
                  format_version=onnx_backend.FORMAT_VERSION - 1)
     assert is_exported("fake-model") is False
@@ -399,7 +399,7 @@ def test_is_exported_false_on_older_format(monkeypatch, tmp_path):
 
 def test_is_exported_false_when_meta_names_another_model(monkeypatch, tmp_path):
     """_slug is lossy: "org/model" and "org_model" share a directory."""
-    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    monkeypatch.setenv("GAUGE_ONNX_DIR", str(tmp_path))
     assert _slug("org/model") == _slug("org_model")  # the collision this guards
     write_export(tmp_path / _slug("org/model"), model="org/model")
     assert is_exported("org/model") is True
@@ -407,17 +407,17 @@ def test_is_exported_false_when_meta_names_another_model(monkeypatch, tmp_path):
 
 
 def test_runner_rejects_an_export_for_another_model(monkeypatch, tmp_path):
-    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    monkeypatch.setenv("GAUGE_ONNX_DIR", str(tmp_path))
     write_export(tmp_path / _slug("org_model"), model="org/model")
-    with pytest.raises(RuntimeError, match="yn export-onnx"):
+    with pytest.raises(RuntimeError, match="gauge export-onnx"):
         OnnxRunner("org_model")
 
 
 def test_runner_rejects_an_older_format(monkeypatch, tmp_path):
-    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    monkeypatch.setenv("GAUGE_ONNX_DIR", str(tmp_path))
     write_export(tmp_path / _slug("fake-model"),
                  format_version=onnx_backend.FORMAT_VERSION - 1)
-    with pytest.raises(RuntimeError, match="yn export-onnx"):
+    with pytest.raises(RuntimeError, match="gauge export-onnx"):
         OnnxRunner("fake-model")
 
 
@@ -445,7 +445,7 @@ def stub_runner(monkeypatch, tmp_path):
     """An OnnxRunner over a real tokenizer with the ONNX session stubbed out."""
     import onnxruntime as ort
 
-    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    monkeypatch.setenv("GAUGE_ONNX_DIR", str(tmp_path))
     d = write_export(tmp_path / _slug("fake-model"))
     _tiny_tokenizer(d / TOKENIZER_FILE)
     monkeypatch.setattr(ort, "InferenceSession", lambda *a, **kw: object())
@@ -470,7 +470,7 @@ def test_count_tokens_reports_the_real_size_not_the_cap(stub_runner):
 
 def test_replace_export_refuses_a_directory_that_is_not_an_export(tmp_path):
     """--out takes any path, so this guards a user's own directory."""
-    from yn.onnx_backend import _replace_export
+    from gauge.onnx_backend import _replace_export
 
     victim = tmp_path / "my-models"
     victim.mkdir()
@@ -478,13 +478,13 @@ def test_replace_export_refuses_a_directory_that_is_not_an_export(tmp_path):
     tmp = tmp_path / "staged"
     tmp.mkdir()
 
-    with pytest.raises(RuntimeError, match="not a yn export"):
+    with pytest.raises(RuntimeError, match="not a gauge export"):
         _replace_export(tmp, victim)
     assert (victim / "important.bin").read_text() == "do not delete"
 
 
 def test_replace_export_replaces_a_previous_export(tmp_path):
-    from yn.onnx_backend import _replace_export
+    from gauge.onnx_backend import _replace_export
 
     final = write_export(tmp_path / "export", entail_idx=0)
     tmp = tmp_path / "staged"
@@ -497,7 +497,7 @@ def test_replace_export_replaces_a_previous_export(tmp_path):
 
 
 def test_replace_export_accepts_an_empty_directory(tmp_path):
-    from yn.onnx_backend import _replace_export
+    from gauge.onnx_backend import _replace_export
 
     final = tmp_path / "empty"
     final.mkdir()
@@ -518,7 +518,7 @@ def _aged(d: Path, seconds: float) -> Path:
 
 def test_replace_export_refuses_a_user_directory_that_has_a_meta_json(tmp_path):
     """meta.json is a common file name; it alone doesn't make a directory ours."""
-    from yn.onnx_backend import _replace_export
+    from gauge.onnx_backend import _replace_export
 
     victim = tmp_path / "my-project"
     victim.mkdir()
@@ -526,41 +526,41 @@ def test_replace_export_refuses_a_user_directory_that_has_a_meta_json(tmp_path):
     (victim / "precious.txt").write_text("do not delete")
     tmp = write_export(tmp_path / "staged")
 
-    with pytest.raises(RuntimeError, match="not a yn export"):
+    with pytest.raises(RuntimeError, match="not a gauge export"):
         _replace_export(tmp, victim)
     assert (victim / "precious.txt").read_text() == "do not delete"
 
 
 def test_replace_export_refuses_a_folder_holding_only_someone_elses_meta_json(tmp_path):
     """Every file name matches an export's, but the metadata isn't ours."""
-    from yn.onnx_backend import _replace_export
+    from gauge.onnx_backend import _replace_export
 
     victim = tmp_path / "config"
     victim.mkdir()
     (victim / "meta.json").write_text('{"name": "my settings"}')
     tmp = write_export(tmp_path / "staged")
 
-    with pytest.raises(RuntimeError, match="not a yn export"):
+    with pytest.raises(RuntimeError, match="not a gauge export"):
         _replace_export(tmp, victim)
     assert "my settings" in (victim / "meta.json").read_text()
 
 
 def test_replace_export_refuses_an_export_with_a_user_file_added(tmp_path):
     """Our metadata, but a file we never write: replacing it would delete that file."""
-    from yn.onnx_backend import _replace_export
+    from gauge.onnx_backend import _replace_export
 
     final = write_export(tmp_path / "export")
     (final / "notes.txt").write_text("mine")
     tmp = write_export(tmp_path / "staged")
 
-    with pytest.raises(RuntimeError, match="not a yn export"):
+    with pytest.raises(RuntimeError, match="not a gauge export"):
         _replace_export(tmp, final)
     assert (final / "notes.txt").read_text() == "mine"
 
 
 def test_replace_export_leaves_a_users_dot_old_sibling_alone(tmp_path):
     """The old export is set aside in a temp dir of our own, not at <out>.old."""
-    from yn.onnx_backend import _replace_export
+    from gauge.onnx_backend import _replace_export
 
     sibling = tmp_path / "export.old"
     sibling.mkdir()
@@ -575,7 +575,7 @@ def test_replace_export_leaves_a_users_dot_old_sibling_alone(tmp_path):
 def test_replace_export_puts_the_old_export_back_if_the_swap_fails(tmp_path, monkeypatch):
     import os
 
-    from yn.onnx_backend import _replace_export
+    from gauge.onnx_backend import _replace_export
 
     final = write_export(tmp_path / "export", entail_idx=0)
     tmp = write_export(tmp_path / "staged", entail_idx=2)
@@ -594,8 +594,8 @@ def test_replace_export_puts_the_old_export_back_if_the_swap_fails(tmp_path, mon
 
 @pytest.fixture
 def cache_root(monkeypatch, tmp_path):
-    """YN's own export cache, where sweeping is allowed."""
-    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path / "cache"))
+    """Gauge's own export cache, where sweeping is allowed."""
+    monkeypatch.setenv("GAUGE_ONNX_DIR", str(tmp_path / "cache"))
     root = tmp_path / "cache"
     root.mkdir()
     return root
@@ -603,7 +603,7 @@ def cache_root(monkeypatch, tmp_path):
 
 def test_sweep_removes_stale_temp_dirs(cache_root):
     """A killed export leaves most of a gigabyte behind under .export-*."""
-    from yn.onnx_backend import _sweep_stale_temp_dirs
+    from gauge.onnx_backend import _sweep_stale_temp_dirs
 
     stale = cache_root / ".export-abc123"
     stale.mkdir()
@@ -621,7 +621,7 @@ def test_sweep_removes_stale_temp_dirs(cache_root):
 
 
 def test_sweep_leaves_a_temp_dir_another_export_is_still_writing(cache_root):
-    from yn.onnx_backend import _sweep_stale_temp_dirs
+    from gauge.onnx_backend import _sweep_stale_temp_dirs
 
     running = cache_root / ".export-running"
     running.mkdir()
@@ -631,7 +631,7 @@ def test_sweep_leaves_a_temp_dir_another_export_is_still_writing(cache_root):
 
 def test_sweep_never_runs_outside_yns_own_cache(cache_root, tmp_path):
     """--out can sit in a user's home folder; their .export-* is not ours to delete."""
-    from yn.onnx_backend import _sweep_stale_temp_dirs
+    from gauge.onnx_backend import _sweep_stale_temp_dirs
 
     home = tmp_path / "home"
     theirs = home / ".export-settings"
@@ -643,30 +643,30 @@ def test_sweep_never_runs_outside_yns_own_cache(cache_root, tmp_path):
 
 def test_bad_onnx_threads_is_an_error_even_on_auto(monkeypatch, tmp_path):
     """A typo in config should be reported, not quietly turned into a torch fallback."""
-    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    monkeypatch.setenv("GAUGE_ONNX_DIR", str(tmp_path))
     write_export(tmp_path / _slug("fake-model"))
-    monkeypatch.setenv("YN_ONNX_THREADS", "four")
+    monkeypatch.setenv("GAUGE_ONNX_THREADS", "four")
     d = Decider(model_name="fake-model", backend="auto")
-    with pytest.raises(ValueError, match="YN_ONNX_THREADS"):
+    with pytest.raises(ValueError, match="GAUGE_ONNX_THREADS"):
         d._load_onnx_runner()
 
 
 @pytest.mark.parametrize("raw", ["0", "-2"])
 def test_onnx_threads_must_be_at_least_one(monkeypatch, raw):
-    monkeypatch.setenv("YN_ONNX_THREADS", raw)
+    monkeypatch.setenv("GAUGE_ONNX_THREADS", raw)
     with pytest.raises(ValueError, match="1 or more"):
         onnx_backend._env_threads()
 
 
 def test_onnx_threads_reads_a_whole_number(monkeypatch):
-    monkeypatch.setenv("YN_ONNX_THREADS", "3")
+    monkeypatch.setenv("GAUGE_ONNX_THREADS", "3")
     assert onnx_backend._env_threads() == 3
 
 
 @pytest.mark.parametrize("device", ["mps", "cuda"])
 def test_auto_leaves_an_explicitly_chosen_gpu_on_torch(monkeypatch, tmp_path, device):
-    """ONNX runs on the CPU here, so an export must not override YN_DEVICE=mps/cuda."""
-    monkeypatch.setenv("YN_ONNX_DIR", str(tmp_path))
+    """ONNX runs on the CPU here, so an export must not override GAUGE_DEVICE=mps/cuda."""
+    monkeypatch.setenv("GAUGE_ONNX_DIR", str(tmp_path))
     write_export(tmp_path / _slug("fake-model"))
     assert not Decider(model_name="fake-model", backend="auto", device=device)._use_onnx()
     assert Decider(model_name="fake-model", backend="auto", device="cpu")._use_onnx()

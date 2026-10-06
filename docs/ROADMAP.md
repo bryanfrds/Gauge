@@ -1,4 +1,4 @@
-# YN — Roadmap
+# Gauge — Roadmap
 
 Each phase ends with something you can check, so we find out early if the idea doesn't
 work.
@@ -9,14 +9,14 @@ work.
 
 ## Phase 0.5 — Claude/Codex hookup with a stand-in model ✅ (working)
 
-Result: Claude Code used YN correctly on a real task. The stand-in model's accuracy
+Result: Claude Code used Gauge correctly on a real task. The stand-in model's accuracy
 and confidence are not reliable enough to trust unattended, which is what Phases 1–3
 fix. Details in [CLAUDE-AND-CODEX.md](CLAUDE-AND-CODEX.md#stand-in-model).
 
-- Build `yn-mcp` and the `yn` CLI on an existing open zero-shot classifier
+- Build `gauge-mcp` and the `gauge` CLI on an existing open zero-shot classifier
   (see [CLAUDE-AND-CODEX.md](CLAUDE-AND-CODEX.md)).
 - Connect it to Claude Code and Codex and try it on a real task.
-- **Done when:** Claude or Codex uses YN for batch yes/no decisions and hands the
+- **Done when:** Claude or Codex uses Gauge for batch yes/no decisions and hands the
   unsure ones back to itself. This also tells us early whether agents actually use it.
 
 ## Phase 1 — Prove it on one decision
@@ -50,7 +50,7 @@ fix. Details in [CLAUDE-AND-CODEX.md](CLAUDE-AND-CODEX.md#stand-in-model).
 
 ## Phase 5 — Later
 
-- Smaller/faster variant (`yn-small`)
+- Smaller/faster variant (`gauge-small`)
 - Multi-choice decisions
 - Other languages
 - Bi-encoder mode for large label lists

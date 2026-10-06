@@ -1,10 +1,10 @@
-# YN AI Model
+# Gauge
 
-YN is a small, open-source AI that **answers yes or no**, true or false, and tells you
+Gauge is a small, open-source AI that **answers yes or no**, true or false, and tells you
 how sure it is. That's all it does.
 
-> **Status:** early. The `yn` command and the Claude/Codex tool work today on a
-> borrowed stand-in model. YN's own model isn't trained yet. See
+> **Status:** early. The `gauge` command and the Claude/Codex tool work today on a
+> borrowed stand-in model. Gauge's own model isn't trained yet. See
 > [docs/CLAUDE-AND-CODEX.md](docs/CLAUDE-AND-CODEX.md) to try it.
 
 ## It's not a chatbot
@@ -17,7 +17,7 @@ word, like someone typing. That makes them great at conversation, but:
 - they can **ramble or go off-script**: you ask for "yes" or "no" and get a paragraph,
   or an answer you didn't expect.
 
-YN doesn't write anything. It reads your question and gives back one of the answers
+Gauge doesn't write anything. It reads your question and gives back one of the answers
 you allowed, plus a number showing how confident it is. There's no typing and no
 rambling, so it can't give you an answer you didn't allow.
 
@@ -25,7 +25,7 @@ rambling, so it can't give you an answer you didn't allow.
 
 1. **You give it something to judge.** A message, a review, a support ticket, any text.
 2. **You ask a question about it.** "Is this spam?"
-3. **YN scores each possible answer.** It checks how well "true" fits and how well
+3. **Gauge scores each possible answer.** It checks how well "true" fits and how well
    "false" fits, and gives each one a score.
 4. **You get the winner and its confidence.** `false`, 97% sure.
 
@@ -44,7 +44,7 @@ You send:
 }
 ```
 
-YN sends back:
+Gauge sends back:
 
 ```json
 {
@@ -58,7 +58,7 @@ Your program reads `answer` and acts on it. You don't need to read or parse any 
 
 ## Example: more than two choices
 
-Yes/no is the core, but the same trick works for any short list of answers. YN scores
+Yes/no is the core, but the same trick works for any short list of answers. Gauge scores
 every option and picks the best one.
 
 You send:
@@ -71,7 +71,7 @@ You send:
 }
 ```
 
-YN sends back:
+Gauge sends back:
 
 ```json
 {
@@ -85,30 +85,30 @@ Your program uses the answer directly. You don't need to parse any text.
 
 ## Works with Claude and Codex (planned)
 
-YN plugs into Claude Code and Codex as a tool through MCP (Model Context Protocol, the
-standard way to give them extra tools). They hand YN the quick yes/no calls, like
-"is this email urgent?" across 400 emails, and only think hard about the ones YN isn't
+Gauge plugs into Claude Code and Codex as a tool through MCP (Model Context Protocol, the
+standard way to give them extra tools). They hand Gauge the quick yes/no calls, like
+"is this email urgent?" across 400 emails, and only think hard about the ones Gauge isn't
 sure about. It's faster and uses far less of your limits.
 
-It can also suggest **which AI model should handle a task** (`yn route`), so quick
+It can also suggest **which AI model should handle a task** (`gauge route`), so quick
 jobs go to cheap, fast models and hard ones go to the strongest.
 
 Details: [docs/CLAUDE-AND-CODEX.md](docs/CLAUDE-AND-CODEX.md)
 
 ## Running it lighter and faster
 
-By default YN runs on PyTorch, which is a machine-learning *training* framework. YN
+By default Gauge runs on PyTorch, which is a machine-learning *training* framework. Gauge
 only ever runs a trained model, so all that extra machinery is dead weight.
 
 Export the model once and it runs on ONNX Runtime instead — a small program that only
 knows how to run models:
 
 ```
-pip install 'yn[onnx,export]'
-yn export-onnx
+pip install 'gauge-model[onnx,export]'
+gauge export-onnx
 ```
 
-That's it. YN picks up the export automatically from then on. On a plain CPU:
+That's it. Gauge picks up the export automatically from then on. On a plain CPU:
 
 | | Memory | Startup | Four inputs |
 |---|---|---|---|
@@ -124,12 +124,12 @@ exists. Dropping it from the install — and the couple of gigabytes it adds to 
 container image — needs it moved out of the core dependencies, which hasn't happened
 yet.
 
-Set `YN_BACKEND=torch` to force the old path, or `YN_ONNX_DIR` to keep the export
+Set `GAUGE_BACKEND=torch` to force the old path, or `GAUGE_ONNX_DIR` to keep the export
 somewhere specific (useful for a read-only container volume).
 
 ## Teaching it your own labels
 
-Out of the box YN is a generalist. Shown a few thousand labelled examples, it learns
+Out of the box Gauge is a generalist. Shown a few thousand labelled examples, it learns
 your task. On a public set of finance tweets (bearish / bullish / neutral), one
 21-minute training run on a laptop took it from **73.6% to 90.5%** on tweets it never
 saw. Rerun it yourself with `train/examples/twitter_financial.py`; the method,
@@ -146,10 +146,10 @@ quick decision. Many jobs inside an app only need one:
 - Is this safe to show? **safe / unsafe**
 
 Commercial "decision-only" models exist, such as [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev)
-from TypeSafe AI, which launched in September 2026. YN is an open-source take on the
+from TypeSafe AI, which launched in September 2026. Gauge is an open-source take on the
 same idea, so anyone can run, inspect and improve it.
 
-Others have built open single-task versions, such as one for predicting sales. YN aims
+Others have built open single-task versions, such as one for predicting sales. Gauge aims
 to be the open **general-purpose** one. See [Related work](docs/SPEC.md#9-related-work).
 
 ## Goals
@@ -164,9 +164,9 @@ to be the open **general-purpose** one. See [Related work](docs/SPEC.md#9-relate
 
 | Doc | For | What's in it |
 |---|---|---|
-| [docs/OVERVIEW.md](docs/OVERVIEW.md) | Everyone | What YN does and doesn't do, in plain English |
+| [docs/OVERVIEW.md](docs/OVERVIEW.md) | Everyone | What Gauge does and doesn't do, in plain English |
 | [docs/SPEC.md](docs/SPEC.md) | Builders | How it works: model, input/output format, training, testing |
-| [docs/CLAUDE-AND-CODEX.md](docs/CLAUDE-AND-CODEX.md) | Everyone | How Claude and Codex use YN as a tool |
+| [docs/CLAUDE-AND-CODEX.md](docs/CLAUDE-AND-CODEX.md) | Everyone | How Claude and Codex use Gauge as a tool |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Everyone | The build order, phase by phase |
 | [docs/ONNX.md](docs/ONNX.md) | Builders | Running without PyTorch: setup, measurements, what was rejected |
 | [docs/TRAINING.md](docs/TRAINING.md) | Builders | Training on your own labels, laptop memory, and the benchmarks |

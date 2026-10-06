@@ -173,7 +173,7 @@ def test_training_runs_end_to_end_and_saves_a_sound_model(tmp_path, tiny_base, m
     assert torch.equal(after[emb], before[emb].float())          # frozen
     enc = next(k for k in after if "encoder.layer.0" in k and k.endswith("weight"))
     assert not torch.equal(after[enc], before[enc].float())      # trained, despite checkpointing
-    summary = json.loads((out / "yn_training.json").read_text())
+    summary = json.loads((out / "gauge_training.json").read_text())
     assert summary["epoch"] in (1, 2)
     assert summary["labels"] == LABELS and summary["template"] == TEMPLATE
     assert {"val"} <= summary["before"].keys() and {"val"} <= summary["after"].keys()

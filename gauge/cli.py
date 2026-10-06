@@ -1,10 +1,10 @@
-"""`yn` terminal command.
+"""`gauge` terminal command.
 
-    yn check "This email is spam." "You won a free iPhone!"
-    yn decide "My card was charged twice" billing shipping technical
-    echo "My card was charged twice" | yn decide - billing shipping technical
-    yn check "This is urgent." --lines < subjects.txt
-    yn route "Fix the typo in the README title"        # which model should do this?
+    gauge check "This email is spam." "You won a free iPhone!"
+    gauge decide "My card was charged twice" billing shipping technical
+    echo "My card was charged twice" | gauge decide - billing shipping technical
+    gauge check "This is urgent." --lines < subjects.txt
+    gauge route "Fix the typo in the README title"        # which model should do this?
 
 Exit codes with --exit-code (for scripts and hooks):
     check:  0 = true, 1 = false, 2 = not sure
@@ -22,8 +22,8 @@ import math
 import os
 import sys
 
-from yn.model import DEFAULT_MODEL, Decider, InputError
-from yn.route import read_routes_file, route_many
+from gauge.model import DEFAULT_MODEL, Decider, InputError
+from gauge.route import read_routes_file, route_many
 
 EXIT_FALSE, EXIT_UNSURE, EXIT_ERROR, EXIT_USAGE = 1, 2, 3, 64
 
@@ -75,7 +75,7 @@ def _stdin_has_data() -> bool:
 
 
 def _decide_args(args) -> None:
-    """Split `yn decide TEXT OPTION OPTION...` into text and options.
+    """Split `gauge decide TEXT OPTION OPTION...` into text and options.
 
     With -o, the only positional is the text, as before. Without it, the first is the
     text ("-" for stdin) and the rest are the options.
@@ -89,20 +89,20 @@ def _decide_args(args) -> None:
     else:
         if len(words) < 3:
             raise InputError('give the text, then at least two options: '
-                             'yn decide "hi" greeting question (or - as the text to '
+                             'gauge decide "hi" greeting question (or - as the text to '
                              'read it from stdin)')
         args.text, args.options = words[0], words[1:]
         if args.text != "-" and _stdin_has_data():
-            # Dropping -o from an old `... | yn decide -o a -o b` command would
+            # Dropping -o from an old `... | gauge decide -o a -o b` command would
             # otherwise judge the first option as the text, without a word.
-            print("yn: warning: stdin ignored; the first argument is the text. "
+            print("gauge: warning: stdin ignored; the first argument is the text. "
                   "Use - as the text to read it from stdin.", file=sys.stderr)
     if args.text == "-":
         args.text = None
 
 
 def _parser() -> argparse.ArgumentParser:
-    p = _Parser(prog="yn", description="Fast true/false and pick-one decisions.")
+    p = _Parser(prog="gauge", description="Fast true/false and pick-one decisions.")
     common = _Parser(add_help=False)
     common.add_argument("--json", action="store_true", help="print full JSON results")
     common.add_argument("--lines", action="store_true", help="treat each input line separately")
@@ -118,43 +118,43 @@ def _parser() -> argparse.ArgumentParser:
     d.add_argument("-o", "--option", action="append", dest="options",
                    help="an option; repeat for each. Or list the options after the text.")
     d.add_argument("words", nargs="*", metavar="TEXT_AND_OPTIONS",
-                   help='the text, then its options: yn decide "hi" greeting question. '
+                   help='the text, then its options: gauge decide "hi" greeting question. '
                         'Use - for the text to read it from stdin.')
 
     r = sub.add_parser("route", parents=[common], help="pick a model for a task")
     r.add_argument("--routes", metavar="FILE",
-                   help='JSON list of {"model": ..., "when": ...} (default: YN_ROUTES or '
+                   help='JSON list of {"model": ..., "when": ...} (default: GAUGE_ROUTES or '
                         "built-in Claude models)")
     r.add_argument("text", nargs="?", help="task description (default: stdin)")
 
     e = sub.add_parser("export-onnx",
                        help="export the model for the faster, lighter ONNX backend")
-    e.add_argument("--model", help="model to export (default: YN_MODEL, else the built-in)")
+    e.add_argument("--model", help="model to export (default: GAUGE_MODEL, else the built-in)")
     e.add_argument("--out", metavar="DIR",
-                   help="where to write it (default: YN_ONNX_DIR, else the yn cache)")
+                   help="where to write it (default: GAUGE_ONNX_DIR, else the gauge cache)")
     return p
 
 
 def _export_onnx(args) -> int:
-    from yn.onnx_backend import _slug, export, export_dir
+    from gauge.onnx_backend import _slug, export, export_dir
 
-    model = args.model or os.environ.get("YN_MODEL") or DEFAULT_MODEL
+    model = args.model or os.environ.get("GAUGE_MODEL") or DEFAULT_MODEL
     out = export(model, args.out)
     print(f"exported {model} to {out}", file=sys.stderr)
-    # Only claim automatic pickup when this really is the directory YN will look in
+    # Only claim automatic pickup when this really is the directory Gauge will look in
     # for the model it will actually run. --out or --model can make it neither.
-    runs_this_model = model == (os.environ.get("YN_MODEL") or DEFAULT_MODEL)
+    runs_this_model = model == (os.environ.get("GAUGE_MODEL") or DEFAULT_MODEL)
     if runs_this_model and out == export_dir(model):
         print("the onnx backend is used automatically from now on; "
-              "set YN_BACKEND=torch to opt out.", file=sys.stderr)
+              "set GAUGE_BACKEND=torch to opt out.", file=sys.stderr)
     elif out.name != _slug(model):
-        # YN looks in YN_ONNX_DIR/<slug>, so no setting can point it at this folder.
+        # Gauge looks in GAUGE_ONNX_DIR/<slug>, so no setting can point it at this folder.
         print(f"to use it, the folder must be named {_slug(model)}: re-run with "
               f"--out {out.parent / _slug(model)}", file=sys.stderr)
     else:
-        needs = [] if runs_this_model else [f"YN_MODEL={model}"]
+        needs = [] if runs_this_model else [f"GAUGE_MODEL={model}"]
         if out != export_dir(model):
-            needs.append(f"YN_ONNX_DIR={out.parent}")
+            needs.append(f"GAUGE_ONNX_DIR={out.parent}")
         print("to use it, set " + " and ".join(needs), file=sys.stderr)
     return 0
 
@@ -162,7 +162,7 @@ def _export_onnx(args) -> int:
 def _parse(argv: list[str] | None):
     """parse_args, except decide's options may sit on either side of a flag.
 
-    argparse stops a list of positionals at the first flag, so `yn decide hi a --json b`
+    argparse stops a list of positionals at the first flag, so `gauge decide hi a --json b`
     would leave "b" unrecognized. Words left over like that are more options.
     """
     parser = _parser()
@@ -181,11 +181,11 @@ def main(argv: list[str] | None = None) -> int:
         try:
             return _export_onnx(args)
         except ImportError as e:
-            print(f"yn: export needs the export extra: pip install 'yn[export]' ({e})",
+            print(f"gauge: export needs the export extra: pip install 'gauge-model[export]' ({e})",
                   file=sys.stderr)
             return EXIT_ERROR
         except Exception as e:  # bad model name, no entailment label, disk full
-            print(f"yn: error: {type(e).__name__}: {e}", file=sys.stderr)
+            print(f"gauge: error: {type(e).__name__}: {e}", file=sys.stderr)
             return EXIT_ERROR
     try:
         if args.cmd == "decide":
@@ -200,10 +200,10 @@ def main(argv: list[str] | None = None) -> int:
             routes = read_routes_file(args.routes) if args.routes else None
             results = route_many(decider, inputs, routes)
     except InputError as e:
-        print(f"yn: {e}", file=sys.stderr)
+        print(f"gauge: {e}", file=sys.stderr)
         return EXIT_USAGE
     except Exception as e:  # model missing, bad config, library failure
-        print(f"yn: error: {type(e).__name__}: {e}", file=sys.stderr)
+        print(f"gauge: error: {type(e).__name__}: {e}", file=sys.stderr)
         return EXIT_ERROR
 
     try:

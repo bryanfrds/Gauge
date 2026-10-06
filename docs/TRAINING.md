@@ -1,8 +1,8 @@
-# Training YN on your own labels
+# Training Gauge on your own labels
 
 The stand-in model judges any statement, but not especially well. Shown a few
 thousand of your own labelled examples, it learns your labels. `train/train_choices.py`
-does that, and the result is still a YN model: you ask it with `decide` as before.
+does that, and the result is still a Gauge model: you ask it with `decide` as before.
 
 ## Run it
 
@@ -14,10 +14,10 @@ does that, and the result is still a YN model: you ask it with `decide` as befor
     --batch 4 --max-len 128 --checkpointing
 ```
 
-Then point YN at it and ask with the same statements:
+Then point Gauge at it and ask with the same statements:
 
 ```bash
-YN_MODEL=models/my-sentiment yn decide "<post>" \
+GAUGE_MODEL=models/my-sentiment gauge decide "<post>" \
     "This post is positive about Acme Bank." \
     "This post is neutral about Acme Bank." \
     "This post is negative about Acme Bank."
@@ -94,7 +94,7 @@ public data and reruns with one command:
 
 It downloads Twitter Financial News Sentiment (`zeroshot/twitter-financial-news-sentiment`
 on Hugging Face, MIT licence): 11,931 finance tweets labelled Bearish, Bullish or
-Neutral, already split into train and validation. YN trains on the 9,543 train
+Neutral, already split into train and validation. Gauge trains on the 9,543 train
 tweets (5% held back to pick the best epoch), using the statement *"This tweet is
 {bearish / bullish / neutral} about the market."* It is scored on all 2,388
 validation tweets, which it never sees.
@@ -102,11 +102,11 @@ validation tweets, which it never sees.
 | | Accuracy | Bearish caught | Bullish caught | Neutral caught |
 |---|---|---|---|---|
 | Always "Neutral" | 65.6% | 0% | 0% | 100% |
-| YN, untrained | 73.6% | 86% | 86% | 67% |
-| **YN, one epoch (21 min)** | **90.5%** | **87%** | **84%** | **93%** |
+| Gauge, untrained | 73.6% | 86% | 86% | 67% |
+| **Gauge, one epoch (21 min)** | **90.5%** | **87%** | **84%** | **93%** |
 
 When the trained model is at least 85% sure (93% of tweets), it is right 94% of the
-time. Untrained, YN read many neutral headlines as bullish or bearish (518 of 1,566).
+time. Untrained, Gauge read many neutral headlines as bullish or bearish (518 of 1,566).
 Training mostly taught it what "neutral" means for this data.
 
 Measured on a 16 GB Apple Silicon Mac, 2026-10-06, with the script's settings

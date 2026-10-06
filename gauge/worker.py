@@ -17,16 +17,16 @@ import threading
 import time
 
 # A server sits open for a whole chat, so by default it frees the model after two
-# quiet minutes. YN_IDLE_UNLOAD=0 keeps it loaded in the server process instead.
+# quiet minutes. GAUGE_IDLE_UNLOAD=0 keeps it loaded in the server process instead.
 DEFAULT_IDLE_UNLOAD = 120.0
 
 
 def env_idle_unload() -> float | None:
-    """YN_IDLE_UNLOAD in seconds; unset means the default, 0 means never.
+    """GAUGE_IDLE_UNLOAD in seconds; unset means the default, 0 means never.
 
     Server config, so a bad value is a RuntimeError rather than a caller error.
     """
-    raw = os.environ.get("YN_IDLE_UNLOAD")
+    raw = os.environ.get("GAUGE_IDLE_UNLOAD")
     if raw is None or not raw.strip():
         return DEFAULT_IDLE_UNLOAD
     try:
@@ -34,7 +34,7 @@ def env_idle_unload() -> float | None:
     except ValueError:
         value = -1.0
     if not value >= 0:  # also catches nan
-        raise RuntimeError(f"YN_IDLE_UNLOAD must be a number of seconds, 0 or more, got {raw!r}")
+        raise RuntimeError(f"GAUGE_IDLE_UNLOAD must be a number of seconds, 0 or more, got {raw!r}")
     return value or None
 
 
@@ -55,7 +55,7 @@ def _serve(conn, factory: str) -> None:
         module, _, name = factory.partition(":")
         decider = getattr(importlib.import_module(module), name)()
     except Exception as e:
-        # A setup problem (bad YN_THRESHOLD, model missing). Report it on every call
+        # A setup problem (bad GAUGE_THRESHOLD, model missing). Report it on every call
         # instead of dying, so the caller sees the real cause, not "stopped unexpectedly".
         setup_error = e
     else:
@@ -84,7 +84,7 @@ class WorkerDecider:
     Calls are serialized, as they are in Decider itself.
     """
 
-    def __init__(self, idle_unload: float, factory: str = "yn.model:Decider"):
+    def __init__(self, idle_unload: float, factory: str = "gauge.model:Decider"):
         self.idle_unload = idle_unload
         self._factory = factory
         self._lock = threading.Lock()
@@ -107,10 +107,10 @@ class WorkerDecider:
             except (EOFError, OSError):
                 self._stop_locked()
                 raise RuntimeError(
-                    "the yn model process stopped unexpectedly; the next call starts a new one"
+                    "the gauge model process stopped unexpectedly; the next call starts a new one"
                 ) from None
             except Exception as e:  # an error that pickled but won't unpickle here
-                raise RuntimeError(f"the yn model process sent back an unreadable error: "
+                raise RuntimeError(f"the gauge model process sent back an unreadable error: "
                                    f"{type(e).__name__}: {e}") from None
             finally:
                 self._used_locked()
