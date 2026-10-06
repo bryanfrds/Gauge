@@ -1,3 +1,5 @@
+# Copyright 2026 bryanfrds (https://github.com/bryanfrds)
+# SPDX-License-Identifier: Apache-2.0
 """Run the model in a child process that stops when it has been idle.
 
 The MCP server stays open for a whole chat and is usually idle. Freeing the model

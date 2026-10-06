@@ -1,3 +1,5 @@
+# Copyright 2026 bryanfrds (https://github.com/bryanfrds)
+# SPDX-License-Identifier: Apache-2.0
 """A public benchmark anyone can rerun: Gauge on finance tweets, before and after training.
 
     .venv/bin/python train/examples/twitter_financial.py              # download, train, score

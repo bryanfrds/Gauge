@@ -1,3 +1,5 @@
+# Copyright 2026 bryanfrds (https://github.com/bryanfrds)
+# SPDX-License-Identifier: Apache-2.0
 """Pick a model for a task (`gauge route`).
 
 A route is a model plus a statement describing the tasks it suits. Routing is

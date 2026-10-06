@@ -1,3 +1,5 @@
+# Copyright 2026 bryanfrds (https://github.com/bryanfrds)
+# SPDX-License-Identifier: Apache-2.0
 """Fine-tune Gauge on your own labelled examples, so `decide` learns your labels.
 
     .venv/bin/python train/train_choices.py --data labelled.csv \\

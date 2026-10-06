@@ -1,3 +1,5 @@
+# Copyright 2026 bryanfrds (https://github.com/bryanfrds)
+# SPDX-License-Identifier: Apache-2.0
 """ONNX Runtime backend: same scores as PyTorch, less memory and faster on CPU.
 
 PyTorch is a training framework; we only ever run inference. Exporting the model

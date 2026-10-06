@@ -1,3 +1,5 @@
+# Copyright 2026 bryanfrds (https://github.com/bryanfrds)
+# SPDX-License-Identifier: Apache-2.0
 """Gauge: a small decision model. Answers true/false or picks from a list, with confidence."""
 
 from gauge.model import Decider, Decision, get_decider

@@ -1,3 +1,5 @@
+# Copyright 2026 bryanfrds (https://github.com/bryanfrds)
+# SPDX-License-Identifier: Apache-2.0
 """`gauge` terminal command.
 
     gauge check "This email is spam." "You won a free iPhone!"

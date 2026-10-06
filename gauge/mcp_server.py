@@ -1,3 +1,5 @@
+# Copyright 2026 bryanfrds (https://github.com/bryanfrds)
+# SPDX-License-Identifier: Apache-2.0
 """`gauge-mcp`: MCP server so Claude Code, Codex and other agents can use Gauge as a tool.
 
 Runs over stdio (local only). Stdout carries the protocol, so never print to it.

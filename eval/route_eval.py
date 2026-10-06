@@ -1,3 +1,5 @@
+# Copyright 2026 bryanfrds (https://github.com/bryanfrds)
+# SPDX-License-Identifier: Apache-2.0
 """Measure `gauge route` on eval/route_tasks.json with the built-in routes.
 
     .venv/bin/python eval/route_eval.py
