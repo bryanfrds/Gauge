@@ -28,6 +28,8 @@ fix. Details in [CLAUDE-AND-CODEX.md](CLAUDE-AND-CODEX.md#stand-in-model).
 - **Progress (2026-10-05):** sentiment toward a named company, trained on 15k
   LLM-labelled posts: 51% → 86–88% agreement with the LLM. Not there yet on the
   rarer labels. Results and method in [TRAINING.md](TRAINING.md).
+- **Public benchmark (2026-10-06):** finance tweets, 73.6% → 90.5% after one 21-minute
+  epoch, rerunnable with `train/examples/twitter_financial.py`.
 
 ## Phase 2 — One model, many decisions
 

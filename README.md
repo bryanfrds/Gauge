@@ -127,6 +127,14 @@ yet.
 Set `YN_BACKEND=torch` to force the old path, or `YN_ONNX_DIR` to keep the export
 somewhere specific (useful for a read-only container volume).
 
+## Teaching it your own labels
+
+Out of the box YN is a generalist. Shown a few thousand labelled examples, it learns
+your task. On a public set of finance tweets (bearish / bullish / neutral), one
+21-minute training run on a laptop took it from **73.6% to 90.5%** on tweets it never
+saw. Rerun it yourself with `train/examples/twitter_financial.py`; the method,
+memory use and results are in [docs/TRAINING.md](docs/TRAINING.md).
+
 ## Why this exists
 
 Most AI models write sentences, and that's slow and expensive when all you need is a
@@ -161,6 +169,7 @@ to be the open **general-purpose** one. See [Related work](docs/SPEC.md#9-relate
 | [docs/CLAUDE-AND-CODEX.md](docs/CLAUDE-AND-CODEX.md) | Everyone | How Claude and Codex use YN as a tool |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Everyone | The build order, phase by phase |
 | [docs/ONNX.md](docs/ONNX.md) | Builders | Running without PyTorch: setup, measurements, what was rejected |
+| [docs/TRAINING.md](docs/TRAINING.md) | Builders | Training on your own labels, laptop memory, and the benchmarks |
 
 ## License
 
