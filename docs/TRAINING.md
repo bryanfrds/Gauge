@@ -50,7 +50,10 @@ so after training the script fits one number on the validation rows: a
 **temperature** that softens (above 1) or sharpens (below 1) every score. It never
 changes which answer wins, only how sure it sounds. It stays between 0.05 and 20, and
 is left at 1 (scores as they are) when there are fewer than 50 validation rows or the
-model got every one right: neither says anything about how sure it should be.
+model got every one right: neither says anything about how sure it should be. It is
+also left at 1 when it doesn't lower the validation ECE. The fit minimises log-loss,
+not ECE, and on a model training already left honest the two can disagree (see the
+finance tweets below). `not_fitted` in the file says which applied.
 
 It is saved as `gauge_calibration.json` beside the model, with the **ECE** (expected
 calibration error: the average gap between stated confidence and actual accuracy)
@@ -119,6 +122,12 @@ validation tweets, which it never sees.
 | Always "Neutral" | 65.6% | 0% | 0% | 100% |
 | Gauge, untrained | 73.6% | 86% | 86% | 67% |
 | **Gauge, one epoch (21 min)** | **90.5%** | **87%** | **84%** | **93%** |
+
+Its confidence is honest without help: on the validation tweets its stated confidence
+is off by 0.028 on average (ECE), against 0.153 untrained and the 0.05 target. The
+fitted temperature, 1.03, raised ECE on the 477 held-back training tweets it was
+fitted on (0.048 → 0.055), so training keeps the scores as they are. On the
+validation tweets it would have raised ECE to 0.044.
 
 When the trained model is at least 85% sure (93% of tweets), it is right 94% of the
 time. Untrained, Gauge read many neutral headlines as bullish or bearish (518 of 1,566).

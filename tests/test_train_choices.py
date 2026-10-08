@@ -303,6 +303,28 @@ def test_a_perfect_or_tiny_validation_set_keeps_scores_as_they_are():
     assert t == 1.0 and str(MIN_CALIBRATION_ROWS) in why
 
 
+def test_a_temperature_that_would_worsen_calibration_is_not_kept(monkeypatch):
+    import train_choices
+
+    # Stated ~0.73, right 3 times in 4: already honest. The log-loss fit can still land
+    # somewhere that adds ECE (as on the finance tweets); stand in for that with 5.
+    gold = torch.arange(80) % 2
+    picked = torch.where(torch.arange(80) % 4 == 0, 1 - gold, gold)
+    logits = torch.nn.functional.one_hot(picked, 2).float()
+    monkeypatch.setattr(train_choices, "fit_temperature", lambda lg, g: 5.0)
+    t, why = train_choices.choose_temperature(logits, gold)
+    assert t == 1.0 and "didn't lower validation ECE" in why
+
+
+def test_a_temperature_that_helps_is_kept():
+    from train_choices import choose_temperature
+
+    gold = torch.arange(80) % 2
+    picked = torch.where(torch.arange(80) % 4 == 0, 1 - gold, gold)
+    t, why = choose_temperature(torch.nn.functional.one_hot(picked, 2).float() * 8, gold)
+    assert why is None and t > 1.5
+
+
 def test_the_fitted_temperature_stays_in_a_sensible_range():
     from train_choices import TEMPERATURE_RANGE, fit_temperature
 
