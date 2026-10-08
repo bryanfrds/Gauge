@@ -101,7 +101,9 @@ def _read_temperature(model_name: str) -> float:
     if not path.is_file():
         return 1.0
     try:
-        value = float(json.loads(path.read_text())["temperature"])
+        raw = json.loads(path.read_text())["temperature"]
+        # float(True) is 1.0, which would hide a hand-edited mistake.
+        value = -1.0 if isinstance(raw, bool) else float(raw)
     except (OSError, ValueError, KeyError, TypeError):
         value = -1.0
     if not 0 < value < float("inf"):
