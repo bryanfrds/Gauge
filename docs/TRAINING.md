@@ -48,7 +48,9 @@ statements word for word (the script refuses one that doesn't). Label smoothing 
 A model that says 0.9 should be right about 90% of the time. Raw scores rarely are,
 so after training the script fits one number on the validation rows: a
 **temperature** that softens (above 1) or sharpens (below 1) every score. It never
-changes which answer wins, only how sure it sounds.
+changes which answer wins, only how sure it sounds. It stays between 0.05 and 20, and
+is left at 1 (scores as they are) when there are fewer than 50 validation rows or the
+model got every one right: neither says anything about how sure it should be.
 
 It is saved as `gauge_calibration.json` beside the model, with the **ECE** (expected
 calibration error: the average gap between stated confidence and actual accuracy)
