@@ -51,6 +51,11 @@ sys.path.insert(0, str(ROOT))
 from gauge.model import DEFAULT_MODEL, DEFAULT_THRESHOLD  # noqa: E402
 
 MAX_CHARS = 2000  # long posts: the opening carries the sentiment, and it keeps steps fast
+# A temperature fitted on a handful of rows, or on rows the model got all right, says
+# nothing useful (the all-right fit runs towards 0: "always certain"). Below this many
+# rows, or with no mistakes to learn from, keep scores as they are.
+MIN_CALIBRATION_ROWS = 50
+TEMPERATURE_RANGE = (0.05, 20.0)
 
 
 def read_rows(path: str, text_cols: list[str], label_col: str, labels: list[str]) -> list[dict]:
@@ -116,22 +121,32 @@ def ece(confs: list[float], correct: list[bool], bins: int = 10) -> float:
 
 
 def fit_temperature(logits: torch.Tensor, gold: torch.Tensor) -> float:
-    """The one temperature T for which softmax(logits / T) best matches the right
-    answers (lowest log-loss). Above 1 softens over-confident scores. It never
-    changes which answer wins, only how sure it sounds."""
-    logits = logits.detach().clone().float()   # out of inference mode, so it can be fitted
-    log_t = torch.zeros(1, requires_grad=True)   # T = exp(log_t) stays positive
-    opt = torch.optim.LBFGS([log_t], lr=0.1, max_iter=200)
+    """The one temperature T, within TEMPERATURE_RANGE, for which softmax(logits / T)
+    best matches the right answers (lowest log-loss). Above 1 softens over-confident
+    scores. It never changes which answer wins, only how sure it sounds.
 
-    def closure():
-        opt.zero_grad()
-        loss = torch.nn.functional.cross_entropy(logits / log_t.exp(), gold)
-        loss.backward()
-        return loss
+    Log-loss is convex in 1/T, so it has one dip along log T, and a ternary search
+    finds it without gradients (it works the same inside inference mode)."""
+    logits = logits.float()
+    loss = lambda log_t: torch.nn.functional.cross_entropy(
+        logits / math.exp(log_t), gold).item()
+    low, high = (math.log(t) for t in TEMPERATURE_RANGE)
+    for _ in range(100):   # shrinks the range by a third each time: far past float precision
+        a, b = low + (high - low) / 3, high - (high - low) / 3
+        if loss(a) <= loss(b):
+            high = b
+        else:
+            low = a
+    return math.exp((low + high) / 2)
 
-    with torch.enable_grad():
-        opt.step(closure)
-    return float(log_t.exp())
+
+def choose_temperature(logits: torch.Tensor, gold: torch.Tensor) -> tuple[float, str | None]:
+    """The temperature to save, and why it was left at 1 when it was."""
+    if len(gold) < MIN_CALIBRATION_ROWS:
+        return 1.0, f"only {len(gold)} validation rows; need {MIN_CALIBRATION_ROWS}"
+    if bool((logits.argmax(-1) == gold).all()):
+        return 1.0, "no validation mistakes to calibrate against"
+    return fit_temperature(logits, gold), None
 
 
 def report(logits: torch.Tensor, rows: list[dict], labels: list[str],
@@ -280,13 +295,19 @@ def main() -> None:
             best = after
             model.save_pretrained(args.out)
             tok.save_pretrained(args.out)
-            temp = fit_temperature(logits["val"], gold_of(val, args.labels))
+            temp, skipped = choose_temperature(logits["val"], gold_of(val, args.labels))
+            temp = round(temp, 4)   # what's saved is what's measured
             calibrated = {k: report(v, sets[k], args.labels, temp) for k, v in logits.items()}
-            (Path(args.out) / "gauge_calibration.json").write_text(json.dumps(
-                {"temperature": round(temp, 4), "fitted_on": f"{len(val)} validation rows",
-                 # val is what T was fitted on, so its "after" flatters; test is the fair one.
-                 "ece": {k: {"before": after[k]["ece"], "after": calibrated[k]["ece"]}
-                         for k in after}}, indent=2))
+            calibration = {"temperature": temp, "fitted_on": f"{len(val)} validation rows",
+                           # val is what T was fitted on, so its "after" flatters; test is
+                           # the fair one.
+                           "ece": {k: {"before": after[k]["ece"], "after": calibrated[k]["ece"]}
+                                   for k in after}}
+            if skipped:
+                calibration["not_fitted"] = skipped
+                print(f"  temperature left at 1: {skipped}", flush=True)
+            (Path(args.out) / "gauge_calibration.json").write_text(
+                json.dumps(calibration, indent=2))
             print(f"  temperature {temp:.3f}: ECE " + ", ".join(
                 f"{k} {after[k]['ece']:.3f} -> {calibrated[k]['ece']:.3f}" for k in after),
                 flush=True)

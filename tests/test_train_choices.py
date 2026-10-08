@@ -179,8 +179,36 @@ def test_training_runs_end_to_end_and_saves_a_sound_model(tmp_path, tiny_base, m
     assert {"val"} <= summary["before"].keys() and {"val"} <= summary["after"].keys()
     assert "data" not in summary["args"]                         # no private paths saved
     calib = json.loads((out / "gauge_calibration.json").read_text())
-    assert calib["temperature"] > 0
-    assert set(calib["ece"]["val"]) == {"before", "after"}
+    assert calib["temperature"] == 1.0 and "6 validation rows" in calib["not_fitted"]
+
+
+def test_the_saved_calibration_is_the_one_measured(tmp_path, tiny_base, monkeypatch):
+    """What lands in the file is the chosen temperature and the ECE measured with it."""
+    import train_choices
+
+    seen = []
+    real_report = train_choices.report
+
+    def spy(logits, rows, labels, temperature=1.0, **kw):
+        out = real_report(logits, rows, labels, temperature, **kw)
+        seen.append((temperature, len(rows), out["ece"]))
+        return out
+
+    monkeypatch.setattr(train_choices, "choose_temperature", lambda lg, gold: (0.07346, None))
+    monkeypatch.setattr(train_choices, "report", spy)
+    rows = [{"title": "", "body": f"post {i}", "label": LABELS[i % 3], "entity": "Acme Bank"}
+            for i in range(40)]
+    out = tmp_path / "out"
+    run_main(monkeypatch, ["--data", write(tmp_path / "d.csv", rows), "--labels", *LABELS,
+                           "--template", TEMPLATE, "--out", str(out), "--base", str(tiny_base),
+                           "--device", "cpu", "--batch", "4", "--max-len", "32",
+                           "--val-frac", "0.25"])
+    calib = json.loads((out / "gauge_calibration.json").read_text())
+    assert calib["temperature"] == 0.0735
+    after = next(e for t, n, e in seen if t == 0.0735 and n == 10)
+    before = next(e for t, n, e in seen[1:] if t == 1.0 and n == 10)
+    assert after != before   # a sharp enough temperature to tell the two apart
+    assert calib["ece"]["val"] == {"before": before, "after": after}
 
 
 def test_a_template_column_the_data_lacks_stops_before_loading(tmp_path, monkeypatch):
@@ -212,6 +240,15 @@ def test_ece_is_the_weighted_gap_between_confidence_and_accuracy():
         0.5 * 0.45 + 0.5 * 0.45)
 
 
+def test_ece_counts_certain_scores_and_bin_edges():
+    from train_choices import ece
+
+    # 1.0 is common after a float32 softmax; it must land in the top bin, not vanish.
+    assert ece([1.0, 1.0], [False, False]) == pytest.approx(1.0)
+    # 0.5 sits on an edge: it belongs to (0.4, 0.5], with the 0.45 beside it.
+    assert ece([0.5, 0.45], [True, True]) == pytest.approx(0.525)
+
+
 def test_temperature_softens_overconfident_scores_without_changing_answers():
     from train_choices import fit_temperature, report
 
@@ -235,3 +272,28 @@ def test_fitting_works_on_logits_made_in_inference_mode():
     with torch.inference_mode():
         logits = torch.tensor([[2.0, 0.0], [0.0, 2.0], [2.0, 0.0], [0.0, 2.0]])
     assert fit_temperature(logits, torch.tensor([0, 1, 1, 1])) > 0
+    with torch.inference_mode():   # and when called from inside inference code
+        assert fit_temperature(logits, torch.tensor([0, 1, 1, 1])) > 0
+
+
+def test_a_perfect_or_tiny_validation_set_keeps_scores_as_they_are():
+    from train_choices import MIN_CALIBRATION_ROWS, choose_temperature
+
+    gold = torch.arange(60) % 2
+    perfect = torch.nn.functional.one_hot(gold, 2).float()
+    assert choose_temperature(perfect, gold) == (1.0, "no validation mistakes to calibrate against")
+    t, why = choose_temperature(perfect[:3], torch.tensor([1, 0, 0]))
+    assert t == 1.0 and str(MIN_CALIBRATION_ROWS) in why
+
+
+def test_the_fitted_temperature_stays_in_a_sensible_range():
+    from train_choices import TEMPERATURE_RANGE, fit_temperature
+
+    gold = torch.arange(60) % 2
+    # Right 59 times in 60 by a hair: the best fit is a tiny T, i.e. "always certain".
+    logits = torch.nn.functional.one_hot(gold, 2).float() * 1e-3
+    logits[0] = logits[0].flip(0)
+    assert fit_temperature(logits, gold) == pytest.approx(TEMPERATURE_RANGE[0], rel=1e-3)
+    # Wrong half the time yet sure: the best fit is "know nothing", the top of the range.
+    assert fit_temperature(torch.tensor([[5.0, 0.0]] * 60), gold) == pytest.approx(
+        TEMPERATURE_RANGE[1], rel=1e-3)
