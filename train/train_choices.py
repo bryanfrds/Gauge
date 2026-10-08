@@ -145,7 +145,19 @@ def choose_temperature(logits: torch.Tensor, gold: torch.Tensor) -> tuple[float,
         return 1.0, f"only {len(gold)} validation rows; need {MIN_CALIBRATION_ROWS}"
     if bool((logits.argmax(-1) == gold).all()):
         return 1.0, "no validation mistakes to calibrate against"
-    return fit_temperature(logits, gold), None
+    temp = round(fit_temperature(logits, gold), 4)
+    # The fit minimises log-loss, not ECE. On a model training already left well
+    # calibrated, the two can disagree and the "fix" makes stated confidence worse.
+    before, after = val_ece(logits, gold, 1.0), val_ece(logits, gold, temp)
+    if after >= before:
+        return 1.0, (f"the fitted temperature {temp} didn't lower validation ECE "
+                     f"({before:.4f} -> {after:.4f})")
+    return temp, None
+
+
+def val_ece(logits: torch.Tensor, gold: torch.Tensor, temperature: float) -> float:
+    probs = (logits.float() / temperature).softmax(-1)
+    return ece(probs.max(-1).values.tolist(), (probs.argmax(-1) == gold).tolist())
 
 
 def report(logits: torch.Tensor, rows: list[dict], labels: list[str],
