@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import json
+import math
+
 import pytest
 
+from conftest import FakeModel
 from gauge.model import DEFAULT_TEMPLATE, MAX_OPTIONS, Decider, Decision, _as_statement
 
 CLAIM = "This email is spam."
@@ -621,3 +625,45 @@ def test_auto_fallback_is_silent_unless_verbose(monkeypatch, capsys):
     monkeypatch.setenv("GAUGE_VERBOSE", "1")
     Decider(model_name="fake-model", backend="auto")._load_onnx_runner()
     assert "ONNX backend unavailable" in capsys.readouterr().err
+
+
+# --- calibration ---------------------------------------------------------------------
+
+
+def _model_dir(tmp_path, calibration):
+    d = tmp_path / "trained"
+    d.mkdir()
+    if calibration is not None:
+        (d / "gauge_calibration.json").write_text(
+            calibration if isinstance(calibration, str) else json.dumps(calibration))
+    return str(d)
+
+
+def test_decide_applies_the_temperature_saved_with_the_model(tmp_path, fake_model):
+    d = Decider(model_name=_model_dir(tmp_path, {"temperature": 2.0}), threshold=0.85)
+    d._entail_idx = 1
+    fake_model.entail[("t", "This text is about a.")] = 4.0
+    result = d.decide("t", ["a", "b"])
+    # softmax([4, 0] / 2) = softmax([2, 0])
+    assert result.answer == "a"
+    assert result.confidence == pytest.approx(1 / (1 + math.exp(-2)), abs=1e-4)
+
+
+def test_check_ignores_the_temperature(tmp_path, fake_model):
+    d = Decider(model_name=_model_dir(tmp_path, {"temperature": 3.0}), threshold=0.85)
+    d._entail_idx = 1
+    fake_model.entail[("t", "c")] = FakeModel.check_logit(0.9)
+    assert d.check("t", "c").confidence == pytest.approx(0.9, abs=1e-4)
+
+
+def test_no_calibration_means_scores_as_they_are(tmp_path):
+    assert Decider(model_name=_model_dir(tmp_path, None)).temperature == 1.0
+    assert Decider(model_name="org/hub-model").temperature == 1.0
+
+
+@pytest.mark.parametrize("bad", ["not json", {"temperature": 0}, {"temperature": -1},
+                                 {"temperature": "hot"}, {}, {"temperature": None},
+                                 {"temperature": True}])
+def test_a_broken_calibration_file_is_a_clear_error(tmp_path, bad):
+    with pytest.raises(RuntimeError, match="temperature"):
+        Decider(model_name=_model_dir(tmp_path, bad))

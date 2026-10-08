@@ -10,9 +10,11 @@ callers.
 
 from __future__ import annotations
 
+import json
 import os
 import threading
 from dataclasses import asdict, dataclass
+from pathlib import Path
 
 DEFAULT_MODEL = "MoritzLaurer/deberta-v3-base-zeroshot-v2.0"
 DEFAULT_THRESHOLD = 0.85
@@ -29,6 +31,8 @@ MAX_STATEMENT_TOKENS = 400
 BATCH_SIZE = 16
 # "auto" prefers an ONNX export when one exists, else PyTorch. See gauge/onnx_backend.py.
 DEFAULT_BACKEND = "auto"
+# Written by train/train_choices.py beside a trained model.
+CALIBRATION_FILE = "gauge_calibration.json"
 
 
 def _softmax(a, axis: int = -1):
@@ -90,6 +94,24 @@ def _env_threshold() -> float:
     return value
 
 
+def _read_temperature(model_name: str) -> float:
+    """The temperature fitted when this model was trained, or 1 (scores as they are).
+    Only a local model directory can have one; a hub name never does."""
+    path = Path(model_name) / CALIBRATION_FILE
+    if not path.is_file():
+        return 1.0
+    try:
+        raw = json.loads(path.read_text())["temperature"]
+        # float(True) is 1.0, which would hide a hand-edited mistake.
+        value = -1.0 if isinstance(raw, bool) else float(raw)
+    except (OSError, ValueError, KeyError, TypeError):
+        value = -1.0
+    if not 0 < value < float("inf"):
+        raise RuntimeError(f"{path} needs a positive \"temperature\"; retrain, or delete "
+                           f"the file to use uncalibrated scores")
+    return value
+
+
 def _check_text(text: str, what: str, max_chars: int = MAX_INPUT_CHARS) -> str:
     if not isinstance(text, str) or not text.strip():
         raise InputError(f"{what} must be a non-empty string")
@@ -135,6 +157,9 @@ class Decider:
                 f"GAUGE_BACKEND must be auto, torch or onnx, got {self.backend!r}"
             )
         self.template = template
+        # Softens decide()'s scores so a stated 0.9 is right about 90% of the time.
+        # It was fitted on decide's softmax across options, so check() doesn't use it.
+        self.temperature = _read_temperature(self.model_name)
         self._model = None
         self._runner = None  # ONNX backend, when in use
         self._tokenizer = None
@@ -289,7 +314,7 @@ class Decider:
         pairs = [(t, s) for t in texts for s in statements]
         entail = self._logits(pairs)[:, self._entail_idx].reshape(len(texts), len(options))
         # Softmax across options, so scores sum to 1 (single-choice).
-        probs = _softmax(entail).tolist()
+        probs = _softmax(entail / self.temperature).tolist()
         return [self._decision(dict(zip(options, row))) for row in probs]
 
     def check(self, text: str, claim: str) -> Decision:
