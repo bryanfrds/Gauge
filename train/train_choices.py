@@ -24,7 +24,8 @@ with GAUGE_MODEL pointing at --out.
 After training, one number is fitted on the validation rows: a temperature that
 softens (or sharpens) every score so a stated 0.9 is right about 90% of the time.
 It is saved to gauge_calibration.json beside the model, with the calibration error
-(ECE) before and after.
+(ECE) before and after. It stays at 1 when it wouldn't lower that error; the file
+says why.
 
 Labelled data is often private (customer messages, social posts), and a model
 trained on it can leak it. Keep --data and --out outside this repository; the

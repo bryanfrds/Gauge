@@ -124,9 +124,10 @@ validation tweets, which it never sees.
 | **Gauge, one epoch (21 min)** | **90.5%** | **87%** | **84%** | **93%** |
 
 Its confidence is honest without help: on the validation tweets its stated confidence
-is off by 0.028 on average (ECE), against 0.153 untrained and the 0.05 target. Label
-smoothing does most of that. The fitted temperature, 1.03, would have raised ECE to
-0.044, so training keeps the scores as they are.
+is off by 0.028 on average (ECE), against 0.153 untrained and the 0.05 target. The
+fitted temperature, 1.03, raised ECE on the 477 held-back training tweets it was
+fitted on (0.048 → 0.055), so training keeps the scores as they are. On the
+validation tweets it would have raised ECE to 0.044.
 
 When the trained model is at least 85% sure (93% of tweets), it is right 94% of the
 time. Untrained, Gauge read many neutral headlines as bullish or bearish (518 of 1,566).
