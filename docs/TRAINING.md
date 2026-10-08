@@ -113,3 +113,11 @@ Measured on a 16 GB Apple Silicon Mac, 2026-10-06, with the script's settings
 (`--batch 4 --max-len 128 --checkpointing`). The training process used 3.2 GB when
 checked mid-run (macOS `footprint`, one reading, not a recorded peak). Expect up to
 the 4.8 GB in the table above: that was a peak, on longer posts.
+
+## Calibration at use time
+
+When `GAUGE_MODEL` points at a model directory with a `gauge_calibration.json` (written
+by training), `decide` divides its scores by the saved temperature before turning them
+into confidences, so a stated 0.9 is right about 90% of the time. `check` doesn't: the
+temperature was fitted on the scores `decide` produces. Delete the file to go back to
+uncalibrated scores.
