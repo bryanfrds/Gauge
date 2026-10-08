@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 import torch
+import zlib
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "train"))
 from train_choices import MAX_CHARS, choice_logits, read_rows, statements  # noqa: E402
@@ -113,7 +114,9 @@ class FakeTokenizer:
     """Words hashed into a tiny vocabulary: enough to run the real model."""
 
     def __call__(self, texts, hyps, truncation, max_length, padding, return_tensors):
-        seqs = [[1] + [hash(w) % 90 + 5 for w in f"{t} {h}".split()][:max_length - 2] + [2]
+        # crc32, not hash(): Python salts str hashes per run, so tests would vary.
+        seqs = [[1] + [zlib.crc32(w.encode()) % 90 + 5 for w in f"{t} {h}".split()]
+                [:max_length - 2] + [2]
                 for t, h in zip(texts, hyps)]
         width = max(map(len, seqs))
         ids = torch.tensor([s + [0] * (width - len(s)) for s in seqs])
@@ -194,8 +197,18 @@ def test_the_saved_calibration_is_the_one_measured(tmp_path, tiny_base, monkeypa
         seen.append((temperature, len(rows), out["ece"]))
         return out
 
+    def fixed_logits(model, tok, rows, labels, *a):
+        """Clear, varied margins with some wrong answers, so a sharp temperature
+        always moves the ECE (a random tiny model scores everything near 1/3)."""
+        out = torch.zeros(len(rows), len(labels))
+        for i, r in enumerate(rows):
+            gold = labels.index(r["_label"])
+            out[i, gold if i % 4 else (gold + 1) % 3] = 1 + i % 5
+        return out
+
     monkeypatch.setattr(train_choices, "choose_temperature", lambda lg, gold: (0.07346, None))
     monkeypatch.setattr(train_choices, "report", spy)
+    monkeypatch.setattr(train_choices, "all_logits", fixed_logits)
     rows = [{"title": "", "body": f"post {i}", "label": LABELS[i % 3], "entity": "Acme Bank"}
             for i in range(40)]
     out = tmp_path / "out"
