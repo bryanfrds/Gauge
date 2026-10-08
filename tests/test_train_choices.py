@@ -178,6 +178,9 @@ def test_training_runs_end_to_end_and_saves_a_sound_model(tmp_path, tiny_base, m
     assert summary["labels"] == LABELS and summary["template"] == TEMPLATE
     assert {"val"} <= summary["before"].keys() and {"val"} <= summary["after"].keys()
     assert "data" not in summary["args"]                         # no private paths saved
+    calib = json.loads((out / "gauge_calibration.json").read_text())
+    assert calib["temperature"] > 0
+    assert set(calib["ece"]["val"]) == {"before", "after"}
 
 
 def test_a_template_column_the_data_lacks_stops_before_loading(tmp_path, monkeypatch):
@@ -198,3 +201,37 @@ def test_zero_epochs_is_a_usage_error(tmp_path, monkeypatch):
     with pytest.raises(SystemExit):
         run_main(monkeypatch, ["--data", "x", "--labels", "A", "--template", "t.",
                                "--out", "o", "--epochs", "0"])
+
+
+def test_ece_is_the_weighted_gap_between_confidence_and_accuracy():
+    from train_choices import ece
+
+    assert ece([0.9] * 10, [True] * 9 + [False]) == pytest.approx(0.0)
+    # Says 0.95 but is right half the time; says 0.55 and is always right.
+    assert ece([0.95, 0.95, 0.55, 0.55], [True, False, True, True]) == pytest.approx(
+        0.5 * 0.45 + 0.5 * 0.45)
+
+
+def test_temperature_softens_overconfident_scores_without_changing_answers():
+    from train_choices import fit_temperature, report
+
+    torch.manual_seed(0)
+    gold = torch.randint(0, 3, (600,))
+    # Right 70% of the time, but the margins claim near certainty.
+    wrong = (gold + torch.randint(1, 3, gold.shape)) % 3
+    picked = torch.where(torch.rand(600) < 0.7, gold, wrong)
+    logits = torch.nn.functional.one_hot(picked, 3).float() * 8
+    rows = [{"_label": LABELS[g]} for g in gold.tolist()]
+    t = fit_temperature(logits, gold)
+    raw, fitted = report(logits, rows, LABELS), report(logits, rows, LABELS, t)
+    assert t > 1.5
+    assert fitted["accuracy"] == raw["accuracy"]
+    assert fitted["ece"] < 0.05 < raw["ece"]
+
+
+def test_fitting_works_on_logits_made_in_inference_mode():
+    from train_choices import fit_temperature
+
+    with torch.inference_mode():
+        logits = torch.tensor([[2.0, 0.0], [0.0, 2.0], [2.0, 0.0], [0.0, 2.0]])
+    assert fit_temperature(logits, torch.tensor([0, 1, 1, 1])) > 0

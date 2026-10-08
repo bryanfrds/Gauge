@@ -21,6 +21,11 @@ it with the same statements, e.g.
 
 with GAUGE_MODEL pointing at --out.
 
+After training, one number is fitted on the validation rows: a temperature that
+softens (or sharpens) every score so a stated 0.9 is right about 90% of the time.
+It is saved to gauge_calibration.json beside the model, with the calibration error
+(ECE) before and after.
+
 Labelled data is often private (customer messages, social posts), and a model
 trained on it can leak it. Keep --data and --out outside this repository; the
 .gitignore already excludes data/ and models/.
@@ -89,15 +94,51 @@ def choice_logits(model, tok, batch, labels, template, device, entail, max_len):
 
 
 @torch.inference_mode()
-def evaluate(model, tok, rows, labels, template, device, entail, max_len,
-             threshold=DEFAULT_THRESHOLD) -> dict:
+def all_logits(model, tok, rows, labels, template, device, entail, max_len) -> torch.Tensor:
+    """(len(rows), len(labels)) choice logits on the CPU."""
     model.eval()
-    preds, confs = [], []
-    for i in range(0, len(rows), 16):
-        probs = choice_logits(model, tok, rows[i:i + 16], labels, template, device,
-                              entail, max_len).softmax(-1).cpu()
-        preds += probs.argmax(-1).tolist()
-        confs += probs.max(-1).values.tolist()
+    return torch.cat([choice_logits(model, tok, rows[i:i + 16], labels, template, device,
+                                    entail, max_len).cpu()
+                      for i in range(0, len(rows), 16)])
+
+
+def ece(confs: list[float], correct: list[bool], bins: int = 10) -> float:
+    """Expected calibration error: the gap between stated confidence and accuracy,
+    averaged over equal-width confidence bins and weighted by how many land in each."""
+    err = 0.0
+    for b in range(bins):
+        idx = [i for i, c in enumerate(confs)
+               if b / bins < c <= (b + 1) / bins or (b == 0 and c == 0)]
+        if idx:
+            gap = sum(correct[i] for i in idx) / len(idx) - sum(confs[i] for i in idx) / len(idx)
+            err += len(idx) / len(confs) * abs(gap)
+    return err
+
+
+def fit_temperature(logits: torch.Tensor, gold: torch.Tensor) -> float:
+    """The one temperature T for which softmax(logits / T) best matches the right
+    answers (lowest log-loss). Above 1 softens over-confident scores. It never
+    changes which answer wins, only how sure it sounds."""
+    logits = logits.detach().clone().float()   # out of inference mode, so it can be fitted
+    log_t = torch.zeros(1, requires_grad=True)   # T = exp(log_t) stays positive
+    opt = torch.optim.LBFGS([log_t], lr=0.1, max_iter=200)
+
+    def closure():
+        opt.zero_grad()
+        loss = torch.nn.functional.cross_entropy(logits / log_t.exp(), gold)
+        loss.backward()
+        return loss
+
+    with torch.enable_grad():
+        opt.step(closure)
+    return float(log_t.exp())
+
+
+def report(logits: torch.Tensor, rows: list[dict], labels: list[str],
+           temperature: float = 1.0, threshold: float = DEFAULT_THRESHOLD) -> dict:
+    probs = (logits / temperature).softmax(-1)
+    preds = probs.argmax(-1).tolist()
+    confs = probs.max(-1).values.tolist()
     gold = [labels.index(r["_label"]) for r in rows]
     correct = [p == g for p, g in zip(preds, gold)]
     sure = [c >= threshold for c in confs]
@@ -105,12 +146,17 @@ def evaluate(model, tok, rows, labels, template, device, entail, max_len,
     return {
         "n": len(rows),
         "accuracy": round(sum(correct) / len(rows), 4),
+        "ece": round(ece(confs, correct), 4),
         "sure_rate": round(n_sure / len(rows), 4),
         "sure_accuracy": round(sum(c for c, s in zip(correct, sure) if s) / n_sure, 4)
         if n_sure else None,
         "confusion": dict(collections.Counter(
             f"{labels[g]}->{labels[p]}" for g, p in zip(gold, preds))),
     }
+
+
+def gold_of(rows: list[dict], labels: list[str]) -> torch.Tensor:
+    return torch.tensor([labels.index(r["_label"]) for r in rows])
 
 
 def _at_least_one(value: str) -> int:
@@ -189,11 +235,11 @@ def main() -> None:
         model.gradient_checkpointing_enable()
     trainable = [prm for prm in model.parameters() if prm.requires_grad]
 
-    ev = lambda rs: evaluate(model, tok, rs, args.labels, args.template, device, entail,
-                             args.max_len)
-    before = {"val": ev(val)}
+    lg = lambda rs: all_logits(model, tok, rs, args.labels, args.template, device, entail,
+                               args.max_len)
+    before = {"val": report(lg(val), val, args.labels)}
     if test:
-        before["test"] = ev(test)
+        before["test"] = report(lg(test), test, args.labels)
     print("before:", json.dumps(before), flush=True)
 
     steps = args.epochs * math.ceil(len(train) / args.batch)
@@ -224,14 +270,26 @@ def main() -> None:
                 left = (time.time() - t0) / step * (steps - step)
                 print(f"  step {step}/{steps}  loss {loss.item():.3f}  "
                       f"{time.time() - t0:.0f}s, ~{left / 60:.0f} min left", flush=True)
-        after = {"val": ev(val)}
+        logits = {"val": lg(val)}
         if test:
-            after["test"] = ev(test)
+            logits["test"] = lg(test)
+        sets = {"val": val, "test": test}
+        after = {k: report(v, sets[k], args.labels) for k, v in logits.items()}
         print(f"epoch {epoch + 1}:", json.dumps(after), flush=True)
         if best is None or after["val"]["accuracy"] > best["val"]["accuracy"]:
             best = after
             model.save_pretrained(args.out)
             tok.save_pretrained(args.out)
+            temp = fit_temperature(logits["val"], gold_of(val, args.labels))
+            calibrated = {k: report(v, sets[k], args.labels, temp) for k, v in logits.items()}
+            (Path(args.out) / "gauge_calibration.json").write_text(json.dumps(
+                {"temperature": round(temp, 4), "fitted_on": f"{len(val)} validation rows",
+                 # val is what T was fitted on, so its "after" flatters; test is the fair one.
+                 "ece": {k: {"before": after[k]["ece"], "after": calibrated[k]["ece"]}
+                         for k in after}}, indent=2))
+            print(f"  temperature {temp:.3f}: ECE " + ", ".join(
+                f"{k} {after[k]['ece']:.3f} -> {calibrated[k]['ece']:.3f}" for k in after),
+                flush=True)
             (Path(args.out) / "gauge_training.json").write_text(json.dumps(
                 {"base": args.base, "epoch": epoch + 1, "before": before, "after": after,
                  "labels": args.labels, "template": args.template,
