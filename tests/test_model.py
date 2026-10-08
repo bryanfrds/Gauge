@@ -662,7 +662,8 @@ def test_no_calibration_means_scores_as_they_are(tmp_path):
 
 
 @pytest.mark.parametrize("bad", ["not json", {"temperature": 0}, {"temperature": -1},
-                                 {"temperature": "hot"}, {}, {"temperature": None}])
+                                 {"temperature": "hot"}, {}, {"temperature": None},
+                                 {"temperature": True}])
 def test_a_broken_calibration_file_is_a_clear_error(tmp_path, bad):
     with pytest.raises(RuntimeError, match="temperature"):
         Decider(model_name=_model_dir(tmp_path, bad))
