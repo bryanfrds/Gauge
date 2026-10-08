@@ -43,6 +43,19 @@ characters, and the template must end in `.`, `!` or `?` so `decide` uses the
 statements word for word (the script refuses one that doesn't). Label smoothing of
 0.1 (`--label-smoothing`) keeps the trained confidence from saturating.
 
+## Honest confidence (calibration)
+
+A model that says 0.9 should be right about 90% of the time. Raw scores rarely are,
+so after training the script fits one number on the validation rows: a
+**temperature** that softens (above 1) or sharpens (below 1) every score. It never
+changes which answer wins, only how sure it sounds.
+
+It is saved as `gauge_calibration.json` beside the model, with the **ECE** (expected
+calibration error: the average gap between stated confidence and actual accuracy)
+before and after. The validation "after" is measured on the rows the temperature was
+fitted on, so it flatters; pass `--test` for a fair number. The target (spec §3.3) is
+ECE under 0.05.
+
 ## Memory and speed on a laptop
 
 Measured on a 16 GB Apple Silicon Mac, default model, on the Apple GPU:
