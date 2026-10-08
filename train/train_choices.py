@@ -112,8 +112,7 @@ def ece(confs: list[float], correct: list[bool], bins: int = 10) -> float:
     averaged over equal-width confidence bins and weighted by how many land in each."""
     err = 0.0
     for b in range(bins):
-        idx = [i for i, c in enumerate(confs)
-               if b / bins < c <= (b + 1) / bins or (b == 0 and c == 0)]
+        idx = [i for i, c in enumerate(confs) if b / bins < c <= (b + 1) / bins]
         if idx:
             gap = sum(correct[i] for i in idx) / len(idx) - sum(confs[i] for i in idx) / len(idx)
             err += len(idx) / len(confs) * abs(gap)

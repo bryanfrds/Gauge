@@ -200,6 +200,7 @@ def test_the_saved_calibration_is_the_one_measured(tmp_path, tiny_base, monkeypa
             for i in range(40)]
     out = tmp_path / "out"
     run_main(monkeypatch, ["--data", write(tmp_path / "d.csv", rows), "--labels", *LABELS,
+                           "--test", write(tmp_path / "t.csv", rows[:7]),
                            "--template", TEMPLATE, "--out", str(out), "--base", str(tiny_base),
                            "--device", "cpu", "--batch", "4", "--max-len", "32",
                            "--val-frac", "0.25"])
@@ -209,6 +210,9 @@ def test_the_saved_calibration_is_the_one_measured(tmp_path, tiny_base, monkeypa
     before = next(e for t, n, e in seen[1:] if t == 1.0 and n == 10)
     assert after != before   # a sharp enough temperature to tell the two apart
     assert calib["ece"]["val"] == {"before": before, "after": after}
+    assert calib["ece"]["test"] == {
+        "before": next(e for t, n, e in seen[2:] if t == 1.0 and n == 7),
+        "after": next(e for t, n, e in seen if t == 0.0735 and n == 7)}
 
 
 def test_a_template_column_the_data_lacks_stops_before_loading(tmp_path, monkeypatch):
@@ -289,6 +293,7 @@ def test_a_perfect_or_tiny_validation_set_keeps_scores_as_they_are():
 def test_the_fitted_temperature_stays_in_a_sensible_range():
     from train_choices import TEMPERATURE_RANGE, fit_temperature
 
+    assert TEMPERATURE_RANGE == (0.05, 20.0)
     gold = torch.arange(60) % 2
     # Right 59 times in 60 by a hair: the best fit is a tiny T, i.e. "always certain".
     logits = torch.nn.functional.one_hot(gold, 2).float() * 1e-3
