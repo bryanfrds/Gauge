@@ -159,9 +159,10 @@ with the new temperature.
 `train/train_general.py` is roadmap Phase 2. Instead of one decision, it trains on a
 mix of public datasets (news topics, review stars, sentiment, emotion, banking intents,
 toxicity and more), each turned into "which of these statements fits the text". Five
-other task families are never trained on: question type, spam, irony, assistant
-intents and finance tweets. Those held-out scores are the honest measure of how well
-it handles decisions it hasn't seen.
+other datasets are never trained on. Question type, spam and irony are kinds of
+decision missing from the mix entirely; assistant intents and finance tweets are new
+datasets of kinds it has seen. Those held-out scores are the honest measure of how
+well it handles decisions it wasn't trained on.
 
 It runs for a set time, checks itself every hour, and keeps the best model so far, so
 you can start it at night and stop it in the morning (Ctrl+C saves too):
@@ -169,6 +170,7 @@ you can start it at night and stop it in the morning (Ctrl+C saves too):
 ```bash
 pip install -e ".[train]"
 python train/train_general.py --out models/general --smoke        # 3-minute check
+# (the first run also downloads every dataset, a few GB, so --smoke fills the cache)
 python train/train_general.py --out models/general --hours 8 \
     --base MoritzLaurer/deberta-v3-large-zeroshot-v2.0 --checkpointing
 ```
@@ -181,3 +183,9 @@ is skipped and listed under `skipped`.
 The stand-in base models were themselves trained on some of these datasets, so the
 trained-task scores flatter them. The held-out families were picked to avoid that.
 Check every dataset's licence before publishing weights trained on the mix.
+
+Before leaving it overnight, turn off sleep and hibernation while plugged in (on
+Windows: Settings > System > Power) and pause Windows Update restarts. A sleeping or
+restarting PC stops the run; the best model from the last hourly check is still in
+`--out`. Don't point `gauge decide` at `--out` while it trains: on Windows an open
+model file blocks the next save (the run carries on with the previous best).

@@ -10,8 +10,10 @@ datasets (topic, sentiment, emotion, intent, toxicity, ...) into one stream. Eac
 example is a text plus a list of statements, one per possible answer, and the model
 learns to score the right statement highest, exactly as `decide` asks it.
 
-A separate set of task families is never trained on. They measure what matters:
-how well the model handles decisions it has never seen.
+A separate set of datasets is never trained on. They measure what matters: how
+well the model handles decisions it has not been trained on. Three of them (question
+type, spam, irony) are kinds of decision missing from the mix entirely; the other two
+are new datasets of a kind it has seen (intent, sentiment).
 
 It trains until --hours runs out (or you press Ctrl+C), checks itself every
 --eval-every-min minutes and keeps the best model so far in --out, so a crash or an
@@ -27,6 +29,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
+import traceback
 import math
 import random
 import sys
@@ -87,9 +92,11 @@ TRAIN_TASKS = [
          pretty={"tech": "technology", "sport": "sports"}),
 ]
 
-# Never trained on: the honest test of "works on decisions it hasn't seen".
+# Never trained on. question_type, spam and irony are new kinds of decision;
+# assistant_intent and finance_tweets are new datasets of kinds in the mix.
 HELD_OUT_TASKS = [
-    dict(name="question_type", ids=["CogComp/trec"], text=["text"], label="coarse_label",
+    dict(name="question_type", ids=["CogComp/trec"], config="default",
+         revision="refs/convert/parquet", text=["text"], label="coarse_label",
          template="This question asks for {label}.",
          names=["an abbreviation", "a thing", "a description", "a person", "a place",
                 "a number"]),
@@ -99,7 +106,8 @@ HELD_OUT_TASKS = [
          template="This tweet is {label}.", names=["not ironic", "ironic"]),
     dict(name="assistant_intent", ids=["clinc/clinc_oos"], config="plus", text=["text"],
          label="intent", template="This request is about {label}.",
-         pretty={"oos": "something else"}),
+         pretty={"oos": "something else", "yes": "saying yes", "no": "saying no",
+                 "text": "sending a text message"}),
     dict(name="finance_tweets", ids=["zeroshot/twitter-financial-news-sentiment"],
          text=["text"], eval_split="validation",
          template="This tweet is {label} about the market.",
@@ -128,7 +136,9 @@ def load_task(spec: dict, split: str, n: int, seed: int) -> tuple[list[dict], li
     errors = []
     for ds_id in spec["ids"]:
         try:
-            ds = load_dataset(ds_id, spec.get("config"), split=split)
+            # Script-only datasets load from the hub's parquet conversion (spec "revision").
+            ds = load_dataset(ds_id, spec.get("config"), split=split,
+                              revision=spec.get("revision"))
             break
         except Exception as e:  # noqa: BLE001 - any failure means "try the next id"
             errors.append(f"{ds_id}: {e}")
@@ -306,7 +316,27 @@ def main() -> None:
     sched = torch.optim.lr_scheduler.LambdaLR(
         opt, lambda s: lr_factor(s, plan["total"], warmup))
 
-    history, best = [], None
+    history, best, oom_skips = [], None, 0
+
+    def save_model(calibration: dict) -> bool:
+        """Write weights, tokenizer and temperature to a side folder, then move each
+        file into --out, so a crash or Ctrl+C mid-save never leaves a half-written or
+        mismatched model. Returns False (and keeps training) if the move fails, e.g.
+        because something on Windows has the old model file open."""
+        tmp = out_dir / ".saving"
+        shutil.rmtree(tmp, ignore_errors=True)
+        try:
+            model.save_pretrained(tmp)
+            tok.save_pretrained(tmp)
+            (tmp / "gauge_calibration.json").write_text(json.dumps(calibration, indent=2))
+            for f in tmp.iterdir():
+                os.replace(f, out_dir / f.name)
+            return True
+        except OSError as e:
+            print(f"  SAVE FAILED, keeping the previous best: {e}", flush=True)
+            return False
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
     def check(step: int, epoch: int) -> None:
         nonlocal best
@@ -318,9 +348,6 @@ def main() -> None:
         print(f"check at step {step}: val mean {val['mean_accuracy']:.3f}, held-out mean "
               f"{held['mean_accuracy']:.3f}", flush=True)
         if best is None or val["mean_accuracy"] > best["val_mean"]:
-            best = entry
-            model.save_pretrained(out_dir)
-            tok.save_pretrained(out_dir)
             # Fit the temperature on the trained families' check rows; the held-out
             # tasks then show whether it carries over to new decisions.
             logits = torch.cat([F.pad(l, (0, args.max_options - l.shape[1]),
@@ -334,11 +361,13 @@ def main() -> None:
                                     for k in held_raw}}
             if why:
                 cal["not_fitted"] = why
-            (out_dir / "gauge_calibration.json").write_text(json.dumps(cal, indent=2))
-            print(f"  saved (best so far), temperature {temp}", flush=True)
+            if save_model(cal):
+                best = entry   # only once the files on disk match it
+                print(f"  saved (best so far), temperature {temp}", flush=True)
         (out_dir / "gauge_training.json").write_text(json.dumps(
             {"base": args.base, "before": {"val": before_val, "held_out": before_held},
              "best": best, "history": history, "skipped": skipped,
+             "out_of_memory_steps_skipped": oom_skips,
              "tasks": {k: {"labels": n, "template": s["template"],
                            "held_out": s in HELD_OUT_TASKS} for k, (s, n) in tasks.items()},
              "args": vars(args)}, indent=2))
@@ -360,16 +389,27 @@ def main() -> None:
                     # shortcuts tied to one option count (spec section 4).
                     k = args.max_options if rng.random() < 0.7 else rng.randint(2, args.max_options)
                     items.append(as_item(r, tasks, k, rng))
-                outs = forward(model, tok, items, device, entail, args.max_len, amp)
-                loss = sum(loss_fn(o.unsqueeze(0), torch.tensor([g], device=device))
-                           for o, (_, _, g) in zip(outs, items)) / len(items)
-                loss.backward()
+                try:
+                    outs = forward(model, tok, items, device, entail, args.max_len, amp)
+                    loss = sum(loss_fn(o.unsqueeze(0), torch.tensor([g], device=device))
+                               for o, (_, _, g) in zip(outs, items)) / len(items)
+                    loss.backward()
+                except torch.OutOfMemoryError:
+                    # One unusually long batch shouldn't end the night: drop it.
+                    outs = loss = None
+                    opt.zero_grad()
+                    if device == "cuda":
+                        torch.cuda.empty_cache()
+                    oom_skips += 1
+                    print(f"  out of memory on one batch, skipped ({oom_skips} so far)",
+                          flush=True)
+                    continue
                 torch.nn.utils.clip_grad_norm_(trainable, 1.0)
                 opt.step()
                 sched.step()
                 opt.zero_grad()
                 step += 1
-                if step == 50 or (step > 50 and step % 1000 == 0):
+                if step == 50 or (step > 50 and step % 200 == 0):
                     per_step = (time.time() - start) / step   # includes checks so far
                     plan["total"] = step + int((deadline - reserve - time.time()) / per_step)
                 if step % args.log_every == 0:
@@ -382,7 +422,12 @@ def main() -> None:
                     last_check = time.time()
     except KeyboardInterrupt:
         print("stopped early (Ctrl+C): running the last check and saving", flush=True)
+    except Exception:  # noqa: BLE001 - still save what the night produced
+        traceback.print_exc()
+        print("training stopped on an error: running the last check and saving", flush=True)
     check(step, epoch)
+    if best is None:
+        sys.exit(f"no model could be saved to {out_dir}; see SAVE FAILED above")
     print(f"done: best at step {best['step']}, held-out mean "
           f"{before_held['mean_accuracy']:.3f} -> {best['held_out']['mean_accuracy']:.3f}, "
           f"saved in {out_dir}", flush=True)
