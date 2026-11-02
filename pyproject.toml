@@ -30,6 +30,8 @@ dev = ["pytest"]
 onnx = ["onnxruntime>=1.17", "tokenizers>=0.15"]
 # Producing the export. Needs torch as well, so it is not a deployment dependency.
 export = ["onnx>=1.16", "onnxscript>=0.1"]
+# Training on the public multi-task mix (train/train_general.py).
+train = ["datasets>=3"]
 
 [project.scripts]
 gauge = "gauge.cli:main"
