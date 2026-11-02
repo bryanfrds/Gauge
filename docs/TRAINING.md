@@ -181,7 +181,7 @@ held-out scores before training and at every check. A dataset that fails to down
 is skipped and listed under `skipped`.
 
 The stand-in base models were themselves trained on some of these datasets, so the
-trained-task scores flatter them. The held-out families were picked to avoid that.
+trained-task scores flatter them. The held-out datasets were picked to avoid that.
 Check every dataset's licence before publishing weights trained on the mix.
 
 Before leaving it overnight, turn off sleep and hibernation while plugged in (on

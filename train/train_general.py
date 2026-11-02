@@ -32,7 +32,6 @@ import json
 import os
 import shutil
 import traceback
-import math
 import random
 import sys
 import time
@@ -275,6 +274,9 @@ def main() -> None:
             (held_sets if held else val_sets)[spec["name"]] = items
             if not held:
                 rows, _ = load_task(spec, spec.get("split", "train"), args.per_task, args.seed)
+                # Options are built from the check split's names; a training label they
+                # lack would crash mid-run, so fail now instead.
+                assert max(r["gold"] for r in rows) < len(names), f"{spec['name']}: label ids"
                 train += rows
             print(f"{'held out' if held else 'train   '}  {spec['name']}: "
                   f"{len(names)} labels, {len(items)} check rows"
@@ -329,7 +331,10 @@ def main() -> None:
             model.save_pretrained(tmp)
             tok.save_pretrained(tmp)
             (tmp / "gauge_calibration.json").write_text(json.dumps(calibration, indent=2))
-            for f in tmp.iterdir():
+            # Weights first, temperature last: if a locked file stops the move, the old
+            # temperature never ends up beside new weights.
+            order = lambda f: (f.name != "model.safetensors", f.name == "gauge_calibration.json")
+            for f in sorted(tmp.iterdir(), key=order):
                 os.replace(f, out_dir / f.name)
             return True
         except OSError as e:
