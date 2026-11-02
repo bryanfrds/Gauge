@@ -153,3 +153,31 @@ answers clear the `sure` threshold (and `--exit-code` returns 2 more often).
 After retraining into the same folder, rerun `gauge export-onnx` if you use the ONNX
 backend: an export is matched by model name, so the old weights would otherwise run
 with the new temperature.
+
+## One model, many decisions (overnight run)
+
+`train/train_general.py` is roadmap Phase 2. Instead of one decision, it trains on a
+mix of public datasets (news topics, review stars, sentiment, emotion, banking intents,
+toxicity and more), each turned into "which of these statements fits the text". Five
+other task families are never trained on: question type, spam, irony, assistant
+intents and finance tweets. Those held-out scores are the honest measure of how well
+it handles decisions it hasn't seen.
+
+It runs for a set time, checks itself every hour, and keeps the best model so far, so
+you can start it at night and stop it in the morning (Ctrl+C saves too):
+
+```bash
+pip install -e ".[train]"
+python train/train_general.py --out models/general --smoke        # 3-minute check
+python train/train_general.py --out models/general --hours 8 \
+    --base MoritzLaurer/deberta-v3-large-zeroshot-v2.0 --checkpointing
+```
+
+On a GPU with bfloat16 support (NVIDIA RTX 30-series or newer) it runs the maths in
+bfloat16 and keeps float32 weights. `models/general/gauge_training.json` shows the
+held-out scores before training and at every check. A dataset that fails to download
+is skipped and listed under `skipped`.
+
+The stand-in base models were themselves trained on some of these datasets, so the
+trained-task scores flatter them. The held-out families were picked to avoid that.
+Check every dataset's licence before publishing weights trained on the mix.
